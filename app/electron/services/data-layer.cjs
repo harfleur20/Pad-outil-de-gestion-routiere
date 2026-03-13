@@ -314,6 +314,9 @@ function setupDataLayer({ app }) {
     setDegradationSolutionOverride: (degradationCode, solutionText) =>
       setDegradationSolutionOverride(db, degradationCode, solutionText),
     clearDegradationSolutionOverride: (degradationCode) => clearDegradationSolutionOverride(db, degradationCode),
+    listMaintenanceInterventions: (filters) => listMaintenanceInterventions(db, filters),
+    upsertMaintenanceIntervention: (payload) => upsertMaintenanceIntervention(db, payload),
+    deleteMaintenanceIntervention: (interventionId) => deleteMaintenanceIntervention(db, interventionId),
     evaluateDecision: (payload) => evaluateDecision(db, payload),
     listDecisionHistory: (filters) => listDecisionHistory(db, filters),
     clearDecisionHistory: () => clearDecisionHistory(db)
@@ -540,6 +543,38 @@ function ensureSchema(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_decision_history_created_at ON decision_history(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_decision_history_sap ON decision_history(sap_code);
+
+    CREATE TABLE IF NOT EXISTS maintenance_intervention (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      road_id INTEGER,
+      road_key TEXT NOT NULL DEFAULT '',
+      road_code TEXT NOT NULL DEFAULT '',
+      road_designation TEXT NOT NULL DEFAULT '',
+      sap_code TEXT,
+      degradation_code TEXT,
+      degradation_name TEXT NOT NULL DEFAULT '',
+      intervention_type TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'PREVU',
+      intervention_date TEXT NOT NULL DEFAULT '',
+      completion_date TEXT NOT NULL DEFAULT '',
+      state_before TEXT NOT NULL DEFAULT '',
+      state_after TEXT NOT NULL DEFAULT '',
+      deflection_before REAL,
+      deflection_after REAL,
+      solution_applied TEXT NOT NULL DEFAULT '',
+      contractor_name TEXT NOT NULL DEFAULT '',
+      observation TEXT NOT NULL DEFAULT '',
+      cost_amount REAL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (road_id) REFERENCES road(id) ON DELETE SET NULL,
+      FOREIGN KEY (degradation_code) REFERENCES degradation(degradation_code) ON DELETE SET NULL,
+      FOREIGN KEY (sap_code) REFERENCES sap_sector(code)
+    );
+    CREATE INDEX IF NOT EXISTS idx_maintenance_intervention_road ON maintenance_intervention(road_id);
+    CREATE INDEX IF NOT EXISTS idx_maintenance_intervention_sap ON maintenance_intervention(sap_code);
+    CREATE INDEX IF NOT EXISTS idx_maintenance_intervention_status ON maintenance_intervention(status);
+    CREATE INDEX IF NOT EXISTS idx_maintenance_intervention_date ON maintenance_intervention(intervention_date DESC);
   `);
 
   db.exec(`
@@ -2390,6 +2425,239 @@ function clearDecisionHistory(db) {
   return { deleted: true };
 }
 
+function listMaintenanceInterventions(db, filters = {}) {
+  const where = [];
+  const params = {};
+
+  const sapCode = toText(filters.sapCode);
+  if (sapCode) {
+    where.push("sap_code = @sapCode");
+    params.sapCode = sapCode;
+  }
+
+  const roadId = Number(filters.roadId);
+  if (Number.isFinite(roadId) && roadId > 0) {
+    where.push("road_id = @roadId");
+    params.roadId = roadId;
+  }
+
+  const status = normalizeMaintenanceStatus(filters.status);
+  if (status) {
+    where.push("status = @status");
+    params.status = status;
+  }
+
+  const search = toText(filters.search);
+  if (search) {
+    where.push(
+      `(
+        road_code LIKE @search OR
+        road_designation LIKE @search OR
+        degradation_name LIKE @search OR
+        intervention_type LIKE @search OR
+        solution_applied LIKE @search OR
+        contractor_name LIKE @search OR
+        observation LIKE @search
+      )`
+    );
+    params.search = `%${search}%`;
+  }
+
+  const limit = Math.min(Math.max(Number(filters.limit) || 250, 1), 5000);
+  params.limit = limit;
+
+  const sql = `
+    SELECT
+      id,
+      created_at AS createdAt,
+      updated_at AS updatedAt,
+      road_id AS roadId,
+      road_key AS roadKey,
+      road_code AS roadCode,
+      road_designation AS roadDesignation,
+      sap_code AS sapCode,
+      degradation_code AS degradationCode,
+      degradation_name AS degradationName,
+      intervention_type AS interventionType,
+      status,
+      intervention_date AS interventionDate,
+      completion_date AS completionDate,
+      state_before AS stateBefore,
+      state_after AS stateAfter,
+      deflection_before AS deflectionBefore,
+      deflection_after AS deflectionAfter,
+      solution_applied AS solutionApplied,
+      contractor_name AS contractorName,
+      observation,
+      cost_amount AS costAmount
+    FROM maintenance_intervention
+    ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+    ORDER BY date(intervention_date) DESC, id DESC
+    LIMIT @limit
+  `;
+
+  return db
+    .prepare(sql)
+    .all(params)
+    .map((row) => ({
+      ...row,
+      roadId: Number.isFinite(Number(row.roadId)) ? Number(row.roadId) : null,
+      deflectionBefore: toNumber(row.deflectionBefore),
+      deflectionAfter: toNumber(row.deflectionAfter),
+      costAmount: toNumber(row.costAmount)
+    }));
+}
+
+function upsertMaintenanceIntervention(db, payload = {}) {
+  const interventionId = Number(payload.id);
+  const roadId = Number(payload.roadId);
+  if (!Number.isFinite(roadId) || roadId <= 0) {
+    throw new Error("Voie d'entretien invalide.");
+  }
+
+  const road = db
+    .prepare(
+      `
+      SELECT
+        id,
+        road_key AS roadKey,
+        road_code AS roadCode,
+        designation AS roadDesignation,
+        COALESCE(sap_code, '') AS sapCode
+      FROM road
+      WHERE id = ?
+    `
+    )
+    .get(roadId);
+  if (!road) {
+    throw new Error("Voie introuvable pour l'entretien.");
+  }
+
+  const degradationCode = normalizeDegradationKey(payload.degradationCode);
+  let degradationName = "";
+  if (degradationCode) {
+    const degradation = db
+      .prepare("SELECT name FROM degradation WHERE degradation_code = ?")
+      .get(degradationCode);
+    if (!degradation) {
+      throw new Error("Degradation introuvable pour l'entretien.");
+    }
+    degradationName = toText(degradation.name);
+  }
+
+  const interventionType = toText(payload.interventionType);
+  if (!interventionType) {
+    throw new Error("Type d'entretien obligatoire.");
+  }
+
+  const interventionDate = toText(payload.interventionDate);
+  if (!interventionDate) {
+    throw new Error("Date d'intervention obligatoire.");
+  }
+
+  const status = normalizeMaintenanceStatus(payload.status) || "PREVU";
+  const completionDate =
+    toText(payload.completionDate) || (status === "TERMINE" ? interventionDate : "");
+
+  const values = [
+    Number(road.id),
+    toText(road.roadKey),
+    toText(road.roadCode),
+    toText(road.roadDesignation),
+    toText(road.sapCode) || null,
+    degradationCode || null,
+    degradationName,
+    interventionType,
+    status,
+    interventionDate,
+    completionDate,
+    toText(payload.stateBefore),
+    toText(payload.stateAfter),
+    toNumber(payload.deflectionBefore),
+    toNumber(payload.deflectionAfter),
+    toText(payload.solutionApplied),
+    toText(payload.contractorName),
+    toText(payload.observation),
+    toNumber(payload.costAmount)
+  ];
+
+  let targetId = null;
+  if (Number.isFinite(interventionId) && interventionId > 0) {
+    const existing = db.prepare("SELECT id FROM maintenance_intervention WHERE id = ?").get(interventionId);
+    if (!existing) {
+      throw new Error("Intervention d'entretien introuvable.");
+    }
+
+    db.prepare(
+      `
+      UPDATE maintenance_intervention
+      SET
+        road_id = ?,
+        road_key = ?,
+        road_code = ?,
+        road_designation = ?,
+        sap_code = ?,
+        degradation_code = ?,
+        degradation_name = ?,
+        intervention_type = ?,
+        status = ?,
+        intervention_date = ?,
+        completion_date = ?,
+        state_before = ?,
+        state_after = ?,
+        deflection_before = ?,
+        deflection_after = ?,
+        solution_applied = ?,
+        contractor_name = ?,
+        observation = ?,
+        cost_amount = ?,
+        updated_at = datetime('now')
+      WHERE id = ?
+    `
+    ).run(...values, interventionId);
+    targetId = interventionId;
+  } else {
+    targetId = Number(
+      db.prepare(
+        `
+        INSERT INTO maintenance_intervention (
+          road_id,
+          road_key,
+          road_code,
+          road_designation,
+          sap_code,
+          degradation_code,
+          degradation_name,
+          intervention_type,
+          status,
+          intervention_date,
+          completion_date,
+          state_before,
+          state_after,
+          deflection_before,
+          deflection_after,
+          solution_applied,
+          contractor_name,
+          observation,
+          cost_amount
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `
+      ).run(...values).lastInsertRowid
+    );
+  }
+
+  return listMaintenanceInterventions(db, { roadId, limit: 5000 }).find((item) => item.id === targetId) || null;
+}
+
+function deleteMaintenanceIntervention(db, interventionId) {
+  const id = Number(interventionId);
+  if (!Number.isFinite(id) || id <= 0) {
+    throw new Error("Intervention d'entretien invalide.");
+  }
+  db.prepare("DELETE FROM maintenance_intervention WHERE id = ?").run(id);
+  return { deleted: true };
+}
+
 function saveDecisionHistory(db, result) {
   const insert = db.prepare(`
     INSERT INTO decision_history (
@@ -3016,6 +3284,14 @@ function normalizeDrainageMatchOperator(value) {
     return normalized;
   }
   return "CONTAINS";
+}
+
+function normalizeMaintenanceStatus(value) {
+  const normalized = normalizeText(value).replace(/[\s-]+/g, "_");
+  if (["PREVU", "EN_COURS", "TERMINE"].includes(normalized)) {
+    return normalized;
+  }
+  return "";
 }
 
 function normalizeRoadCode(value) {

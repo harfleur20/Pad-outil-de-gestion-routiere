@@ -191,6 +191,10 @@ body {
   color: var(--pad-blue-dark);
 }
 
+.card__title--spaced {
+  margin-bottom: 12px;
+}
+
 .card p {
   margin: 0 0 6px;
 }
@@ -290,6 +294,13 @@ body {
   margin-top: 8px;
   display: grid;
   grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.maintenance-form-grid {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -402,6 +413,32 @@ th {
 
 tbody tr.is-selected {
   background: #eaf3ff;
+}
+
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 88px;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.status-chip--prevu {
+  background: rgba(17, 94, 184, 0.12);
+  color: #0b4f8a;
+}
+
+.status-chip--en_cours {
+  background: rgba(255, 214, 10, 0.24);
+  color: #725b00;
+}
+
+.status-chip--termine {
+  background: rgba(196, 214, 0, 0.2);
+  color: #556700;
 }
 
 td.cell-warning {
@@ -552,6 +589,10 @@ label {
   }
 
   .decision-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .maintenance-form-grid {
     grid-template-columns: 1fr;
   }
 

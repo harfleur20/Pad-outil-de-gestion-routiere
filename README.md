@@ -31,9 +31,14 @@ Application desktop Electron + React + SQLite, utilisable hors ligne.
    - personnalisation editable de la solution par degradation.
 5. Ecran `Historique` avec filtres et export CSV.
    - purge complete de l'historique avec bouton `Vider`.
-6. Onglets `Feuil1..Feuil7` avec CRUD complet (lister, rechercher, ajouter, modifier, supprimer).
-7. Stockage local SQLite (mode offline).
-8. Pas de login/PIN au MVP (demarrage direct).
+6. Ecran `Suivi` des entretiens.
+   - enregistrement d'une intervention par voie,
+   - statut `Prevu`, `En cours`, `Termine`,
+   - etat avant / apres, solution appliquee, prestataire, cout, observations,
+   - historique dynamique par route.
+7. Onglets `Feuil1..Feuil7` avec CRUD complet (lister, rechercher, ajouter, modifier, supprimer).
+8. Stockage local SQLite (mode offline).
+9. Pas de login/PIN au MVP (demarrage direct).
 
 ## Depannage
 1. Erreur `Port 5173 is already in use`:

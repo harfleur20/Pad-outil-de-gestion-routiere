@@ -7,6 +7,8 @@ import type {
   DecisionResult,
   DrainageRule,
   DegradationItem,
+  MaintenanceInterventionItem,
+  MaintenanceInterventionPayload,
   MaintenanceSolutionTemplate,
   RoadCatalogItem,
   SapSector,
@@ -69,6 +71,17 @@ declare global {
         assignTemplate: (degradationCode: string, templateKey: string) => Promise<{ degradationCode: string; templateKey: string }>;
         setOverride: (degradationCode: string, solutionText: string) => Promise<{ degradationCode: string; solutionText: string }>;
         clearOverride: (degradationCode: string) => Promise<{ degradationCode: string; cleared: boolean }>;
+      };
+      maintenance: {
+        list: (filters?: {
+          sapCode?: string;
+          roadId?: number;
+          status?: string;
+          search?: string;
+          limit?: number;
+        }) => Promise<MaintenanceInterventionItem[]>;
+        upsert: (payload: MaintenanceInterventionPayload) => Promise<MaintenanceInterventionItem | null>;
+        delete: (interventionId: number) => Promise<{ deleted: boolean }>;
       };
       decision: {
         evaluate: (payload: {

@@ -5,6 +5,8 @@
   DecisionHistoryItem,
   DecisionResult,
   DegradationItem,
+  MaintenanceInterventionItem,
+  MaintenanceInterventionPayload,
   MaintenanceSolutionTemplate,
   RoadCatalogItem,
   SapSector,
@@ -145,6 +147,27 @@ export const padApi = {
     return bridge.solutions.clearOverride(degradationCode);
   },
 
+  async listMaintenanceInterventions(filters?: {
+    sapCode?: string;
+    roadId?: number;
+    status?: string;
+    search?: string;
+    limit?: number;
+  }): Promise<MaintenanceInterventionItem[]> {
+    const bridge = requireBridge();
+    return bridge.maintenance.list(filters);
+  },
+
+  async upsertMaintenanceIntervention(payload: MaintenanceInterventionPayload): Promise<MaintenanceInterventionItem | null> {
+    const bridge = requireBridge();
+    return bridge.maintenance.upsert(payload);
+  },
+
+  async deleteMaintenanceIntervention(interventionId: number): Promise<{ deleted: boolean }> {
+    const bridge = requireBridge();
+    return bridge.maintenance.delete(interventionId);
+  },
+
   async evaluateDecision(payload: {
     roadId?: number;
     roadKey?: string;
@@ -169,3 +192,4 @@ export const padApi = {
     return bridge.reporting.clearHistory();
   }
 };
+

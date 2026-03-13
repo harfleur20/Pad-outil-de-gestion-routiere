@@ -76,6 +76,11 @@ function registerIpcHandlers() {
   ipcMain.handle("solutions:clearOverride", (_event, degradationCode) =>
     dataLayer.clearDegradationSolutionOverride(degradationCode)
   );
+  ipcMain.handle("maintenance:list", (_event, filters) => dataLayer.listMaintenanceInterventions(filters));
+  ipcMain.handle("maintenance:upsert", (_event, payload) => dataLayer.upsertMaintenanceIntervention(payload));
+  ipcMain.handle("maintenance:delete", (_event, interventionId) =>
+    dataLayer.deleteMaintenanceIntervention(interventionId)
+  );
   ipcMain.handle("decision:evaluate", (_event, payload) => dataLayer.evaluateDecision(payload));
   ipcMain.handle("reporting:listHistory", (_event, filters) => dataLayer.listDecisionHistory(filters));
   ipcMain.handle("reporting:clearHistory", () => dataLayer.clearDecisionHistory());

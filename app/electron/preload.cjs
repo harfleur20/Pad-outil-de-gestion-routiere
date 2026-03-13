@@ -1,8 +1,8 @@
-const { contextBridge, ipcRenderer } = require("electron");
+﻿const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("padApp", {
-  appName: "PAD Maintenance Routiere",
-  appVersion: "0.4.0",
+  appName: "PAD Maintenance Routière",
+  appVersion: "0.5.0",
   data: {
     getStatus: () => ipcRenderer.invoke("data:status"),
     importFromExcel: (excelPath) => ipcRenderer.invoke("data:importFromExcel", excelPath),
@@ -41,6 +41,11 @@ contextBridge.exposeInMainWorld("padApp", {
       ipcRenderer.invoke("solutions:setOverride", degradationCode, solutionText),
     clearOverride: (degradationCode) => ipcRenderer.invoke("solutions:clearOverride", degradationCode)
   },
+  maintenance: {
+    list: (filters) => ipcRenderer.invoke("maintenance:list", filters),
+    upsert: (payload) => ipcRenderer.invoke("maintenance:upsert", payload),
+    delete: (interventionId) => ipcRenderer.invoke("maintenance:delete", interventionId)
+  },
   decision: {
     evaluate: (payload) => ipcRenderer.invoke("decision:evaluate", payload)
   },
@@ -50,3 +55,4 @@ contextBridge.exposeInMainWorld("padApp", {
   },
   ping: () => true
 });
+

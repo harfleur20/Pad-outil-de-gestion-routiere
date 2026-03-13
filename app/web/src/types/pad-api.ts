@@ -166,3 +166,48 @@ export type DecisionHistoryItem = {
   drainageNeedsAttention: boolean;
   drainageRecommendation: string;
 };
+
+export type MaintenanceInterventionStatus = "PREVU" | "EN_COURS" | "TERMINE";
+
+export type MaintenanceInterventionItem = {
+  id: number;
+  createdAt: string;
+  updatedAt: string;
+  roadId: number | null;
+  roadKey: string;
+  roadCode: string;
+  roadDesignation: string;
+  sapCode: string;
+  degradationCode: string;
+  degradationName: string;
+  interventionType: string;
+  status: MaintenanceInterventionStatus;
+  interventionDate: string;
+  completionDate: string;
+  stateBefore: string;
+  stateAfter: string;
+  deflectionBefore: number | null;
+  deflectionAfter: number | null;
+  solutionApplied: string;
+  contractorName: string;
+  observation: string;
+  costAmount: number | null;
+};
+
+export type MaintenanceInterventionPayload = {
+  id?: number;
+  roadId: number;
+  degradationCode?: string;
+  interventionType: string;
+  status: MaintenanceInterventionStatus;
+  interventionDate: string;
+  completionDate?: string;
+  stateBefore?: string;
+  stateAfter?: string;
+  deflectionBefore?: number;
+  deflectionAfter?: number;
+  solutionApplied?: string;
+  contractorName?: string;
+  observation?: string;
+  costAmount?: number;
+};

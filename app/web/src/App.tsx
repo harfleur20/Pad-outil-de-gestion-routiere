@@ -7,6 +7,9 @@ import type {
   DecisionResult,
   DrainageRule,
   DegradationItem,
+  MaintenanceInterventionItem,
+  MaintenanceInterventionPayload,
+  MaintenanceInterventionStatus,
   MaintenanceSolutionTemplate,
   RoadCatalogItem,
   SapSector,
@@ -19,7 +22,20 @@ import type {
 const DEFAULT_IMPORT_PATH = "C:\\Users\\harfl\\OneDrive\\Desktop\\programme ayissi.xlsx";
 const MAX_ROWS = 1000;
 const MAX_HISTORY = 500;
+const MAX_MAINTENANCE_ROWS = 500;
 const DRAINAGE_OPERATORS: Array<DrainageRule["matchOperator"]> = ["CONTAINS", "EQUALS", "REGEX", "ALWAYS"];
+const MAINTENANCE_STATUSES: MaintenanceInterventionStatus[] = ["PREVU", "EN_COURS", "TERMINE"];
+const MAINTENANCE_TYPE_SUGGESTIONS = [
+  "Entretien préventif",
+  "Curage caniveaux",
+  "Bouchage nids de poule",
+  "Reprise de surface de chaussée",
+  "Reprofilage",
+  "Rechargement",
+  "Renforcement léger",
+  "Renforcement lourd",
+  "Réhabilitation"
+];
 
 type Feuil4Snapshot = {
   domain: string;
@@ -67,7 +83,7 @@ function toErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message) {
     return error.message;
   }
-  return "Operation impossible.";
+  return "Opération impossible.";
 }
 
 function fmtDate(value: string) {
@@ -117,12 +133,55 @@ function toFrenchBoolean(value: unknown) {
 
 function toSolutionSourceLabel(source: DegradationItem["solutionSource"]) {
   if (source === "OVERRIDE") {
-    return "Personnalisee";
+    return "Personnalisée";
   }
   if (source === "TEMPLATE") {
-    return "Modele";
+    return "Modèle";
   }
-  return "A parametrer";
+  return "À paramétrer";
+}
+
+function toMaintenanceStatusLabel(status: MaintenanceInterventionStatus | string) {
+  if (status === "PREVU") {
+    return "Prévu";
+  }
+  if (status === "EN_COURS") {
+    return "En cours";
+  }
+  if (status === "TERMINE") {
+    return "Terminé";
+  }
+  return toDisplay(status);
+}
+
+function toDeflectionSeverityLabel(value: unknown) {
+  const normalized = normalizeLabel(value);
+  if (normalized === "NON RENSEIGNE") {
+    return "NON RENSEIGNÉ";
+  }
+  if (normalized === "TRES FORT") {
+    return "TRÈS FORT";
+  }
+  return toDisplay(value);
+}
+
+function toDeflectionRecommendationLabel(value: unknown) {
+  const text = toDisplay(value);
+  const normalized = normalizeLabel(text);
+  if (normalized === "RENFORCEMENT LEGER") {
+    return "RENFORCEMENT LÉGER";
+  }
+  if (normalized.startsWith("REHABILITATION")) {
+    return text.replace(/REHABILITATION/gi, "RÉHABILITATION");
+  }
+  return text;
+}
+
+function formatAmount(value: number | null) {
+  if (!Number.isFinite(value ?? null)) {
+    return "-";
+  }
+  return `${Number(value).toLocaleString()} FCFA`;
 }
 
 function isToDetermineIntervention(value: unknown) {
@@ -154,7 +213,7 @@ function classifyDeflectionPreview(value: string): DeflectionPreview {
   }
   return {
     value: String(numeric),
-    severity: "TRES FORT",
+    severity: "TRÈS FORT",
     recommendation: "REHABILITATION COUCHE DE ROULEMENT ET DE BASE"
   };
 }
@@ -168,15 +227,15 @@ function buildFeuil4Snapshot(rows: SheetRow[]): Feuil4Snapshot | null {
     rows.find((row) => normalizeLabel(row.A).startsWith(normalizeLabel(prefix))) ?? null;
 
   const domainRow = rowByA("Domaine");
-  const sapSectorRow = rowByA("Secteur d'Activites Portuaires");
+  const sapSectorRow = rowByA("Secteur d'Activités Portuaires");
   const roadRow = rowByA("Blvd ou Rue");
-  const pkHeaderRow = rowByA("Pk debut");
-  const observationRow = rowByA("Entree observation faite sur la chaussee");
-  const causeRow = rowByA("Entree la cause");
+  const pkHeaderRow = rowByA("Pk début");
+  const observationRow = rowByA("Entrée observation faite sur la chaussée");
+  const causeRow = rowByA("Entrée la cause");
   const deflectionRow =
-    rows.find((row) => normalizeLabel(row.B) === normalizeLabel("Valeur de la deflexion")) ?? null;
+    rows.find((row) => normalizeLabel(row.B) === normalizeLabel("Valeur de la déflexion")) ?? null;
   const severityRow =
-    rows.find((row) => ["FAIBLE", "MOYEN", "FORT", "TRES FORT"].includes(normalizeLabel(row.C))) ?? null;
+    rows.find((row) => ["FAIBLE", "MOYEN", "FORT", "TRÈS FORT"].includes(normalizeLabel(row.C))) ?? null;
   const recommendationRow =
     rows.find((row) => /(RENFORCEMENT|REHABILITATION|ENTRETIEN)/.test(normalizeLabel(row.D))) ?? null;
 
@@ -199,7 +258,7 @@ function buildFeuil4Snapshot(rows: SheetRow[]): Feuil4Snapshot | null {
 
 export default function App() {
   const hasElectronBridge = Boolean(window.padApp);
-  const appName = window.padApp?.appName || "PAD Maintenance Routiere";
+  const appName = window.padApp?.appName || "PAD Maintenance Routière";
   const appVersion = window.padApp?.appVersion || "0.0.0";
   const [status, setStatus] = useState<DataStatus | null>(null);
   const [definitions, setDefinitions] = useState<SheetDefinition[]>([]);
@@ -212,6 +271,7 @@ export default function App() {
   const [editingRowId, setEditingRowId] = useState<number | null>(null);
 
   const [sapSectors, setSapSectors] = useState<SapSector[]>([]);
+  const [allRoads, setAllRoads] = useState<RoadCatalogItem[]>([]);
   const [roads, setRoads] = useState<RoadCatalogItem[]>([]);
   const [degradations, setDegradations] = useState<DegradationItem[]>([]);
   const [selectedSap, setSelectedSap] = useState("");
@@ -225,6 +285,27 @@ export default function App() {
   const [historyRows, setHistoryRows] = useState<DecisionHistoryItem[]>([]);
   const [historySap, setHistorySap] = useState("");
   const [historySearch, setHistorySearch] = useState("");
+  const [maintenanceRows, setMaintenanceRows] = useState<MaintenanceInterventionItem[]>([]);
+  const [maintenancePreviewRows, setMaintenancePreviewRows] = useState<MaintenanceInterventionItem[]>([]);
+  const [maintenanceSap, setMaintenanceSap] = useState("");
+  const [maintenanceRoadFilterId, setMaintenanceRoadFilterId] = useState<number | "">("");
+  const [maintenanceStatusFilter, setMaintenanceStatusFilter] = useState<MaintenanceInterventionStatus | "">("");
+  const [maintenanceSearch, setMaintenanceSearch] = useState("");
+  const [editingMaintenanceId, setEditingMaintenanceId] = useState<number | null>(null);
+  const [maintenanceRoadId, setMaintenanceRoadId] = useState<number | "">("");
+  const [maintenanceDegradationCode, setMaintenanceDegradationCode] = useState("");
+  const [maintenanceType, setMaintenanceType] = useState("");
+  const [maintenanceStatus, setMaintenanceStatus] = useState<MaintenanceInterventionStatus>("PREVU");
+  const [maintenanceDate, setMaintenanceDate] = useState("");
+  const [maintenanceCompletionDate, setMaintenanceCompletionDate] = useState("");
+  const [maintenanceStateBefore, setMaintenanceStateBefore] = useState("");
+  const [maintenanceStateAfter, setMaintenanceStateAfter] = useState("");
+  const [maintenanceDeflectionBefore, setMaintenanceDeflectionBefore] = useState("");
+  const [maintenanceDeflectionAfter, setMaintenanceDeflectionAfter] = useState("");
+  const [maintenanceSolutionApplied, setMaintenanceSolutionApplied] = useState("");
+  const [maintenanceContractorName, setMaintenanceContractorName] = useState("");
+  const [maintenanceObservation, setMaintenanceObservation] = useState("");
+  const [maintenanceCostAmount, setMaintenanceCostAmount] = useState("");
   const [feuil4Snapshot, setFeuil4Snapshot] = useState<Feuil4Snapshot | null>(null);
   const [solutionTemplates, setSolutionTemplates] = useState<MaintenanceSolutionTemplate[]>([]);
   const [selectedTemplateKey, setSelectedTemplateKey] = useState("");
@@ -243,6 +324,8 @@ export default function App() {
   const [isLoadingRows, setIsLoadingRows] = useState(false);
   const [isDecisionBusy, setIsDecisionBusy] = useState(false);
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+  const [isMaintenanceLoading, setIsMaintenanceLoading] = useState(false);
+  const [isMaintenanceBusy, setIsMaintenanceBusy] = useState(false);
   const [isSolutionBusy, setIsSolutionBusy] = useState(false);
   const [isDrainageRuleBusy, setIsDrainageRuleBusy] = useState(false);
   const [error, setError] = useState("");
@@ -255,13 +338,24 @@ export default function App() {
   );
   const activeColumns = activeSheet?.columns ?? [];
   const selectedRoad = useMemo(
-    () => roads.find((road) => road.id === selectedRoadId) ?? null,
-    [roads, selectedRoadId]
+    () => allRoads.find((road) => road.id === selectedRoadId) ?? null,
+    [allRoads, selectedRoadId]
   );
   const selectedDegradation = useMemo(
     () => degradations.find((item) => item.id === selectedDegradationId) ?? null,
     [degradations, selectedDegradationId]
   );
+  const maintenanceSelectedRoad = useMemo(
+    () => allRoads.find((road) => road.id === maintenanceRoadId) ?? null,
+    [allRoads, maintenanceRoadId]
+  );
+  const maintenanceFilterRoadOptions = useMemo(() => {
+    if (!maintenanceSap) {
+      return allRoads;
+    }
+    return allRoads.filter((road) => road.sapCode === maintenanceSap);
+  }, [allRoads, maintenanceSap]);
+  const latestMaintenance = maintenancePreviewRows[0] ?? null;
   const filteredDegradations = useMemo(() => {
     const searchTerm = degradationSearch.trim().toLowerCase();
     if (!searchTerm) {
@@ -277,9 +371,11 @@ export default function App() {
     }
 
     const fallback = feuil4Snapshot;
-    const preview = classifyDeflectionPreview(deflectionValue || fallback?.deflectionValue || "");
-    const decisionSeverity = decisionResult?.deflection?.severity || preview.severity;
-    const decisionRecommendation = decisionResult?.deflection?.recommendation || preview.recommendation;
+  const preview = classifyDeflectionPreview(deflectionValue || fallback?.deflectionValue || "");
+  const decisionSeverity = toDeflectionSeverityLabel(decisionResult?.deflection?.severity || preview.severity);
+  const decisionRecommendation = toDeflectionRecommendationLabel(
+    decisionResult?.deflection?.recommendation || preview.recommendation
+  );
     const selectedRoadLabel = [selectedRoad.roadCode, selectedRoad.designation].filter(Boolean).join(" - ");
     const hasCauses = Boolean(selectedDegradation && selectedDegradation.causes.length > 0);
 
@@ -293,8 +389,8 @@ export default function App() {
       observation: selectedDegradation?.name || fallback?.observation || "-",
       causeMatch: selectedDegradation ? (hasCauses ? "VRAI" : "FAUX") : fallback?.causeMatch || "-",
       deflectionValue: decisionResult?.deflection?.value != null ? String(decisionResult.deflection.value) : preview.value,
-      severity: decisionSeverity || fallback?.severity || "-",
-      recommendation: decisionRecommendation || fallback?.recommendation || "-"
+      severity: decisionSeverity || toDeflectionSeverityLabel(fallback?.severity) || "-",
+      recommendation: decisionRecommendation || toDeflectionRecommendationLabel(fallback?.recommendation) || "-"
     } satisfies Feuil4Snapshot;
   }, [decisionResult, deflectionValue, feuil4Snapshot, selectedDegradation, selectedRoad]);
 
@@ -320,8 +416,20 @@ export default function App() {
     setRoads(roadList);
   }, [selectedSap, roadSearch]);
 
+  const loadAllRoads = useCallback(async () => {
+    const roadList = await padApi.listRoads();
+    setAllRoads(roadList);
+  }, []);
+
   const loadRows = useCallback(async () => {
-    if (!activeSheetName || activeView === "decision" || activeView === "catalogue" || activeView === "degradations" || activeView === "history") {
+    if (
+      !activeSheetName ||
+      activeView === "decision" ||
+      activeView === "catalogue" ||
+      activeView === "degradations" ||
+      activeView === "maintenance" ||
+      activeView === "history"
+    ) {
       setRows([]);
       return;
     }
@@ -358,6 +466,43 @@ export default function App() {
     }
   }, [historySap, historySearch]);
 
+  const loadMaintenanceRows = useCallback(async () => {
+    setIsMaintenanceLoading(true);
+    try {
+      const items = await padApi.listMaintenanceInterventions({
+        sapCode: maintenanceSap || undefined,
+        roadId: maintenanceRoadFilterId || undefined,
+        status: maintenanceStatusFilter || undefined,
+        search: maintenanceSearch.trim() || undefined,
+        limit: MAX_MAINTENANCE_ROWS
+      });
+      setMaintenanceRows(items);
+      setError("");
+    } catch (err) {
+      setError(toErrorMessage(err));
+    } finally {
+      setIsMaintenanceLoading(false);
+    }
+  }, [maintenanceRoadFilterId, maintenanceSap, maintenanceSearch, maintenanceStatusFilter]);
+
+  const loadMaintenancePreview = useCallback(async (roadId?: number | "") => {
+    const normalizedRoadId = Number(roadId);
+    if (!Number.isFinite(normalizedRoadId) || normalizedRoadId <= 0) {
+      setMaintenancePreviewRows([]);
+      return;
+    }
+
+    try {
+      const items = await padApi.listMaintenanceInterventions({
+        roadId: normalizedRoadId,
+        limit: 3
+      });
+      setMaintenancePreviewRows(items);
+    } catch {
+      setMaintenancePreviewRows([]);
+    }
+  }, []);
+
   const loadSolutionTemplates = useCallback(async () => {
     const templates = await padApi.listSolutionTemplates();
     setSolutionTemplates(templates);
@@ -382,6 +527,24 @@ export default function App() {
     setDraftCells(createEmptyCells(activeColumns));
   }, [activeColumns]);
 
+  const resetMaintenanceForm = useCallback(() => {
+    setEditingMaintenanceId(null);
+    setMaintenanceRoadId("");
+    setMaintenanceDegradationCode("");
+    setMaintenanceType("");
+    setMaintenanceStatus("PREVU");
+    setMaintenanceDate("");
+    setMaintenanceCompletionDate("");
+    setMaintenanceStateBefore("");
+    setMaintenanceStateAfter("");
+    setMaintenanceDeflectionBefore("");
+    setMaintenanceDeflectionAfter("");
+    setMaintenanceSolutionApplied("");
+    setMaintenanceContractorName("");
+    setMaintenanceObservation("");
+    setMaintenanceCostAmount("");
+  }, []);
+
   useEffect(() => {
     if (!hasElectronBridge) {
       return;
@@ -396,8 +559,10 @@ export default function App() {
           padApi.listSheetDefinitions(),
           refreshStatus(),
           refreshDecisionCatalogs(),
+          loadAllRoads(),
           loadRoads(),
           loadHistory(),
+          loadMaintenanceRows(),
           loadFeuil4Snapshot(),
           loadSolutionTemplates(),
           loadDrainageRules()
@@ -427,9 +592,11 @@ export default function App() {
     };
   }, [
     hasElectronBridge,
+    loadAllRoads,
     loadDrainageRules,
     loadFeuil4Snapshot,
     loadHistory,
+    loadMaintenanceRows,
     loadRoads,
     loadSolutionTemplates,
     refreshDecisionCatalogs,
@@ -449,6 +616,20 @@ export default function App() {
     }
     loadHistory().catch((err) => setError(toErrorMessage(err)));
   }, [hasElectronBridge, loadHistory]);
+
+  useEffect(() => {
+    if (!hasElectronBridge) {
+      return;
+    }
+    loadMaintenanceRows().catch((err) => setError(toErrorMessage(err)));
+  }, [hasElectronBridge, loadMaintenanceRows]);
+
+  useEffect(() => {
+    if (!hasElectronBridge) {
+      return;
+    }
+    loadMaintenancePreview(selectedRoadId).catch((err) => setError(toErrorMessage(err)));
+  }, [hasElectronBridge, loadMaintenancePreview, selectedRoadId]);
 
   useEffect(() => {
     if (selectedRoadId === "") {
@@ -472,14 +653,27 @@ export default function App() {
   }, [selectedDegradation]);
 
   useEffect(() => {
-    if (activeView === "decision" || activeView === "catalogue" || activeView === "degradations" || activeView === "history") {
+    if (
+      activeView === "decision" ||
+      activeView === "catalogue" ||
+      activeView === "degradations" ||
+      activeView === "maintenance" ||
+      activeView === "history"
+    ) {
       return;
     }
     resetDraft();
   }, [activeSheetName, activeView, resetDraft]);
 
   useEffect(() => {
-    if (!hasElectronBridge || activeView === "decision" || activeView === "catalogue" || activeView === "degradations" || activeView === "history") {
+    if (
+      !hasElectronBridge ||
+      activeView === "decision" ||
+      activeView === "catalogue" ||
+      activeView === "degradations" ||
+      activeView === "maintenance" ||
+      activeView === "history"
+    ) {
       return;
     }
     loadRows();
@@ -492,8 +686,10 @@ export default function App() {
       setStatus(nextStatus);
       await Promise.all([
         refreshDecisionCatalogs(),
+        loadAllRoads(),
         loadRoads(),
         loadHistory(),
+        loadMaintenanceRows(),
         loadFeuil4Snapshot(),
         loadSolutionTemplates(),
         loadDrainageRules()
@@ -501,7 +697,7 @@ export default function App() {
       if (activeView.startsWith("sheet:")) {
         await loadRows();
       }
-      setNotice("Import Excel termine.");
+      setNotice("Import Excel terminé.");
       setError("");
     } catch (err) {
       setError(toErrorMessage(err));
@@ -527,8 +723,10 @@ export default function App() {
       await Promise.all([
         refreshStatus(),
         refreshDecisionCatalogs(),
+        loadAllRoads(),
         loadRoads(),
         loadHistory(),
+        loadMaintenanceRows(),
         loadFeuil4Snapshot(),
         loadSolutionTemplates(),
         loadDrainageRules()
@@ -537,7 +735,7 @@ export default function App() {
         await loadRows();
       }
       setError("");
-      setNotice("Donnees actualisees.");
+      setNotice("Données actualisées.");
     } catch (err) {
       setError(toErrorMessage(err));
     } finally {
@@ -547,11 +745,11 @@ export default function App() {
 
   async function handleEvaluateDecision() {
     if (!selectedRoadId) {
-      setError("Selectionne une voie.");
+      setError("Sélectionne une voie.");
       return;
     }
     if (!selectedDegradationId) {
-      setError("Selectionne une degradation.");
+      setError("Sélectionne une dégradation.");
       return;
     }
 
@@ -569,7 +767,7 @@ export default function App() {
       setDecisionResult(result);
       await Promise.all([refreshStatus(), loadHistory()]);
       setError("");
-      setNotice("Decision calculee et enregistree dans l'historique.");
+      setNotice("Décision calculée et enregistrée dans l'historique.");
     } catch (err) {
       setError(toErrorMessage(err));
     } finally {
@@ -604,7 +802,7 @@ export default function App() {
       if (editingRowId) {
         await padApi.updateSheetRow(activeSheet.name, editingRowId, payload);
         const currentRow = rows.find((row) => row.id === editingRowId);
-        setNotice(`Ligne ${currentRow ? getDisplayRowNumber(currentRow) : editingRowId} mise a jour.`);
+        setNotice(`Ligne ${currentRow ? getDisplayRowNumber(currentRow) : editingRowId} mise à jour.`);
       } else {
         await padApi.createSheetRow(activeSheet.name, payload);
         setNotice("Nouvelle ligne ajoutee.");
@@ -648,7 +846,7 @@ export default function App() {
       if (editingRowId === id) {
         resetDraft();
       }
-      setNotice(`Ligne ${row ? getDisplayRowNumber(row) : id} supprimee.`);
+      setNotice(`Ligne ${row ? getDisplayRowNumber(row) : id} supprimée.`);
       setError("");
     } catch (err) {
       setError(toErrorMessage(err));
@@ -658,7 +856,7 @@ export default function App() {
   }
 
   async function handleClearHistory() {
-    if (!window.confirm("Supprimer tout l'historique des decisions ?")) {
+    if (!window.confirm("Supprimer tout l'historique des décisions ?")) {
       return;
     }
 
@@ -666,7 +864,7 @@ export default function App() {
     try {
       await padApi.clearDecisionHistory();
       await Promise.all([refreshStatus(), loadHistory()]);
-      setNotice("Historique vide.");
+      setNotice("Historique vidé.");
       setError("");
     } catch (err) {
       setError(toErrorMessage(err));
@@ -677,11 +875,11 @@ export default function App() {
 
   async function handleAssignSolutionTemplate() {
     if (!selectedDegradation) {
-      setError("Selectionne une degradation.");
+      setError("Sélectionne une dégradation.");
       return;
     }
     if (!selectedTemplateKey) {
-      setError("Selectionne un modele de solution.");
+      setError("Sélectionne un modèle de solution.");
       return;
     }
 
@@ -689,7 +887,7 @@ export default function App() {
     try {
       await padApi.assignTemplateToDegradation(selectedDegradation.code, selectedTemplateKey);
       await Promise.all([refreshDecisionCatalogs(), loadSolutionTemplates()]);
-      setNotice("Modele de solution applique a la degradation.");
+      setNotice("Modèle de solution appliqué à la dégradation.");
       setError("");
     } catch (err) {
       setError(toErrorMessage(err));
@@ -700,11 +898,11 @@ export default function App() {
 
   async function handleSaveSolutionOverride() {
     if (!selectedDegradation) {
-      setError("Selectionne une degradation.");
+      setError("Sélectionne une dégradation.");
       return;
     }
     if (!solutionDraft.trim()) {
-      setError("Saisis une solution personnalisee.");
+      setError("Saisis une solution personnalisée.");
       return;
     }
 
@@ -712,7 +910,7 @@ export default function App() {
     try {
       await padApi.setDegradationSolutionOverride(selectedDegradation.code, solutionDraft.trim());
       await refreshDecisionCatalogs();
-      setNotice("Solution personnalisee enregistree.");
+      setNotice("Solution personnalisée enregistrée.");
       setError("");
     } catch (err) {
       setError(toErrorMessage(err));
@@ -723,7 +921,7 @@ export default function App() {
 
   async function handleClearSolutionOverride() {
     if (!selectedDegradation) {
-      setError("Selectionne une degradation.");
+      setError("Sélectionne une dégradation.");
       return;
     }
 
@@ -731,7 +929,7 @@ export default function App() {
     try {
       await padApi.clearDegradationSolutionOverride(selectedDegradation.code);
       await refreshDecisionCatalogs();
-      setNotice("Solution personnalisee retiree (retour au modele).");
+      setNotice("Solution personnalisée retirée (retour au modèle).");
       setError("");
     } catch (err) {
       setError(toErrorMessage(err));
@@ -761,13 +959,13 @@ export default function App() {
     setDrainageRuleRecommendation(rule.recommendation || "");
     setDrainageRuleActive(rule.isActive);
     setError("");
-    setNotice(`Edition regle assainissement #${rule.id}`);
+    setNotice(`Édition règle assainissement #${rule.id}`);
   }
 
   async function handleSaveDrainageRule() {
     const parsedOrder = Number(drainageRuleOrder);
     if (!Number.isFinite(parsedOrder) || parsedOrder <= 0) {
-      setError("Rule order invalide (nombre > 0 attendu).");
+      setError("Ordre de règle invalide (nombre > 0 attendu).");
       return;
     }
     if (!drainageRuleRecommendation.trim()) {
@@ -794,7 +992,7 @@ export default function App() {
       await loadDrainageRules();
       resetDrainageRuleEditor();
       setError("");
-      setNotice("Regle assainissement enregistree.");
+      setNotice("Règle assainissement enregistrée.");
     } catch (err) {
       setError(toErrorMessage(err));
     } finally {
@@ -805,11 +1003,11 @@ export default function App() {
   async function handleDeleteDrainageRule(ruleId?: number) {
     const id = Number(ruleId ?? editingDrainageRuleId);
     if (!Number.isFinite(id) || id <= 0) {
-      setError("Selectionne une regle assainissement a supprimer.");
+      setError("Sélectionne une règle assainissement à supprimer.");
       return;
     }
 
-    if (!window.confirm("Supprimer cette regle assainissement ?")) {
+    if (!window.confirm("Supprimer cette règle assainissement ?")) {
       return;
     }
 
@@ -821,7 +1019,7 @@ export default function App() {
         resetDrainageRuleEditor();
       }
       setError("");
-      setNotice(`Regle assainissement #${id} supprimee.`);
+      setNotice(`Règle assainissement #${id} supprimée.`);
     } catch (err) {
       setError(toErrorMessage(err));
     } finally {
@@ -829,9 +1027,116 @@ export default function App() {
     }
   }
 
+  function handleEditMaintenance(intervention: MaintenanceInterventionItem) {
+    setEditingMaintenanceId(intervention.id);
+    setMaintenanceRoadId(intervention.roadId ?? "");
+    setMaintenanceDegradationCode(intervention.degradationCode || "");
+    setMaintenanceType(intervention.interventionType || "");
+    setMaintenanceStatus(intervention.status);
+    setMaintenanceDate(intervention.interventionDate || "");
+    setMaintenanceCompletionDate(intervention.completionDate || "");
+    setMaintenanceStateBefore(intervention.stateBefore || "");
+    setMaintenanceStateAfter(intervention.stateAfter || "");
+    setMaintenanceDeflectionBefore(
+      intervention.deflectionBefore != null ? String(intervention.deflectionBefore) : ""
+    );
+    setMaintenanceDeflectionAfter(
+      intervention.deflectionAfter != null ? String(intervention.deflectionAfter) : ""
+    );
+    setMaintenanceSolutionApplied(intervention.solutionApplied || "");
+    setMaintenanceContractorName(intervention.contractorName || "");
+    setMaintenanceObservation(intervention.observation || "");
+    setMaintenanceCostAmount(intervention.costAmount != null ? String(intervention.costAmount) : "");
+    setError("");
+    setNotice(`Édition entretien #${intervention.id}`);
+  }
+
+  async function handleSaveMaintenance() {
+    const parsedRoadId = Number(maintenanceRoadId);
+    if (!Number.isFinite(parsedRoadId) || parsedRoadId <= 0) {
+      setError("Sélectionne une voie pour l'entretien.");
+      return;
+    }
+    if (!maintenanceType.trim()) {
+      setError("Renseigne le type d'entretien.");
+      return;
+    }
+    if (!maintenanceDate) {
+      setError("Renseigne la date d'intervention.");
+      return;
+    }
+
+    const payload: MaintenanceInterventionPayload = {
+      id: editingMaintenanceId ?? undefined,
+      roadId: parsedRoadId,
+      degradationCode: maintenanceDegradationCode || undefined,
+      interventionType: maintenanceType.trim(),
+      status: maintenanceStatus,
+      interventionDate: maintenanceDate,
+      completionDate: maintenanceCompletionDate || undefined,
+      stateBefore: maintenanceStateBefore.trim() || undefined,
+      stateAfter: maintenanceStateAfter.trim() || undefined,
+      deflectionBefore:
+        maintenanceDeflectionBefore.trim() !== "" ? Number(maintenanceDeflectionBefore) : undefined,
+      deflectionAfter:
+        maintenanceDeflectionAfter.trim() !== "" ? Number(maintenanceDeflectionAfter) : undefined,
+      solutionApplied: maintenanceSolutionApplied.trim() || undefined,
+      contractorName: maintenanceContractorName.trim() || undefined,
+      observation: maintenanceObservation.trim() || undefined,
+      costAmount: maintenanceCostAmount.trim() !== "" ? Number(maintenanceCostAmount) : undefined
+    };
+
+    setIsMaintenanceBusy(true);
+    try {
+      await padApi.upsertMaintenanceIntervention(payload);
+      await Promise.all([
+        loadMaintenanceRows(),
+        loadMaintenancePreview(selectedRoadId),
+        refreshStatus()
+      ]);
+      resetMaintenanceForm();
+      setError("");
+      setNotice("Entretien enregistré.");
+    } catch (err) {
+      setError(toErrorMessage(err));
+    } finally {
+      setIsMaintenanceBusy(false);
+    }
+  }
+
+  async function handleDeleteMaintenance(interventionId?: number) {
+    const id = Number(interventionId ?? editingMaintenanceId);
+    if (!Number.isFinite(id) || id <= 0) {
+      setError("Sélectionne un entretien à supprimer.");
+      return;
+    }
+    if (!window.confirm("Supprimer cette intervention d'entretien ?")) {
+      return;
+    }
+
+    setIsMaintenanceBusy(true);
+    try {
+      await padApi.deleteMaintenanceIntervention(id);
+      await Promise.all([
+        loadMaintenanceRows(),
+        loadMaintenancePreview(selectedRoadId),
+        refreshStatus()
+      ]);
+      if (editingMaintenanceId === id) {
+        resetMaintenanceForm();
+      }
+      setError("");
+      setNotice(`Entretien #${id} supprimé.`);
+    } catch (err) {
+      setError(toErrorMessage(err));
+    } finally {
+      setIsMaintenanceBusy(false);
+    }
+  }
+
   function exportHistoryCsv() {
     if (historyRows.length === 0) {
-      setError("Aucune ligne d'historique a exporter.");
+      setError("Aucune ligne d'historique à exporter.");
       return;
     }
 
@@ -839,18 +1144,18 @@ export default function App() {
       "Date",
       "SAP",
       "Code voie",
-      "Designation voie",
-      "Debut",
+      "Désignation voie",
+      "Début",
       "Fin",
-      "Degradation",
+      "Dégradation",
       "Cause probable",
       "Solution maintenance",
       "Intervention contextuelle",
-      "Deflexion D",
-      "Severite",
-      "Recommendation deflexion",
+      "Déflexion D",
+      "Sévérité",
+      "Recommandation déflexion",
       "Alerte assainissement",
-      "Recommendation assainissement"
+      "Recommandation assainissement"
     ];
 
     const lines = [
@@ -868,8 +1173,8 @@ export default function App() {
           row.maintenanceSolution,
           row.contextualIntervention,
           row.deflectionValue,
-          row.deflectionSeverity,
-          row.deflectionRecommendation,
+          toDeflectionSeverityLabel(row.deflectionSeverity),
+          toDeflectionRecommendationLabel(row.deflectionRecommendation),
           row.drainageNeedsAttention ? "oui" : "non",
           row.drainageRecommendation
         ]
@@ -895,8 +1200,8 @@ export default function App() {
     return (
       <main className="workspace workspace--decision">
         <section className="panel decision-form">
-          <h2>Aide a la decision maintenance</h2>
-          <p className="muted">Selectionne une voie, une degradation et la valeur de deflexion (optionnelle).</p>
+          <h2>Aide à la décision maintenance</h2>
+          <p className="muted">Sélectionne une voie, une dégradation et la valeur de déflexion (optionnelle).</p>
 
           <label htmlFor="sap">Secteur SAP</label>
           <select id="sap" value={selectedSap} onChange={(event) => setSelectedSap(event.target.value)}>
@@ -922,7 +1227,7 @@ export default function App() {
             value={selectedRoadId}
             onChange={(event) => setSelectedRoadId(event.target.value ? Number(event.target.value) : "")}
           >
-            <option value="">Selectionner une voie</option>
+            <option value="">Sélectionner une voie</option>
             {roads.map((road) => (
               <option key={road.id} value={road.id}>
                 {road.sapCode || "SAP?"} | {road.roadCode} | {road.designation}
@@ -930,13 +1235,13 @@ export default function App() {
             ))}
           </select>
 
-          <label htmlFor="degradation">Degradation</label>
+          <label htmlFor="degradation">Dégradation</label>
           <select
             id="degradation"
             value={selectedDegradationId}
             onChange={(event) => setSelectedDegradationId(event.target.value ? Number(event.target.value) : "")}
           >
-            <option value="">Selectionner une degradation</option>
+            <option value="">Sélectionner une dégradation</option>
             {degradations.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.name}
@@ -944,7 +1249,7 @@ export default function App() {
             ))}
           </select>
 
-          <label htmlFor="deflection">Valeur de deflexion D</label>
+          <label htmlFor="deflection">Valeur de déflexion D</label>
           <input
             id="deflection"
             type="number"
@@ -969,12 +1274,12 @@ export default function App() {
 
           {selectedRoad ? (
             <div className="card">
-              <h3>Resume voie</h3>
+              <h3 className="card__title--spaced">Résumé voie</h3>
               <p>
                 <strong>SAP:</strong> {selectedRoad.sapCode || "-"}
               </p>
               <p>
-                <strong>PK/borne debut:</strong> {selectedRoad.startLabel || "-"}
+                <strong>PK/borne début:</strong> {selectedRoad.startLabel || "-"}
               </p>
               <p>
                 <strong>PK/borne fin:</strong> {selectedRoad.endLabel || "-"}
@@ -983,7 +1288,10 @@ export default function App() {
                 <strong>Longueur:</strong> {selectedRoad.lengthM ?? "-"} m
               </p>
               <p>
-                <strong>Etat chaussee:</strong> {selectedRoad.pavementState || "-"}
+                <strong>État chaussée:</strong> {selectedRoad.pavementState || "-"}
+              </p>
+              <p>
+                <strong>État courant suivi:</strong> {latestMaintenance?.stateAfter || selectedRoad.pavementState || "-"}
               </p>
               <p>
                 <strong>Assainissement (type caniveaux / description):</strong> {selectedRoad.drainageType || "-"} /{" "}
@@ -992,9 +1300,36 @@ export default function App() {
             </div>
           ) : null}
 
+          {selectedRoad ? (
+            <div className="card">
+              <h3>Dernier entretien</h3>
+              {latestMaintenance ? (
+                <>
+                  <p>
+                    <strong>Date:</strong> {latestMaintenance.interventionDate}
+                  </p>
+                  <p>
+                    <strong>Statut:</strong> {toMaintenanceStatusLabel(latestMaintenance.status)}
+                  </p>
+                  <p>
+                    <strong>Type:</strong> {latestMaintenance.interventionType || "-"}
+                  </p>
+                  <p>
+                    <strong>État après:</strong> {latestMaintenance.stateAfter || "-"}
+                  </p>
+                  <p>
+                    <strong>Solution appliquée:</strong> {latestMaintenance.solutionApplied || "-"}
+                  </p>
+                </>
+              ) : (
+                <p className="muted">Aucun entretien encore enregistré pour cette voie.</p>
+              )}
+            </div>
+          ) : null}
+
           {dynamicFeuil4Snapshot ? (
             <div className="card">
-              <h3>Cockpit Decisionnel PAD</h3>
+              <h3 className="card__title--spaced">Cockpit Decisionnel PAD</h3>
               <p>
                 <strong>Domaine:</strong> {dynamicFeuil4Snapshot.domain}
               </p>
@@ -1005,7 +1340,7 @@ export default function App() {
                 <strong>Blvd/Rue:</strong> {dynamicFeuil4Snapshot.roadLabel} ({dynamicFeuil4Snapshot.roadMatch})
               </p>
               <p>
-                <strong>Pk debut/fin:</strong> {dynamicFeuil4Snapshot.pkStart} / {dynamicFeuil4Snapshot.pkEnd}
+                <strong>PK début/fin:</strong> {dynamicFeuil4Snapshot.pkStart} / {dynamicFeuil4Snapshot.pkEnd}
               </p>
               <p>
                 <strong>Observation:</strong> {dynamicFeuil4Snapshot.observation}
@@ -1014,7 +1349,7 @@ export default function App() {
                 <strong>Validation cause:</strong> {dynamicFeuil4Snapshot.causeMatch}
               </p>
               <p>
-                <strong>D:</strong> {dynamicFeuil4Snapshot.deflectionValue} | <strong>Etat:</strong>{" "}
+                <strong>D:</strong> {dynamicFeuil4Snapshot.deflectionValue} | <strong>État:</strong>{" "}
                 {dynamicFeuil4Snapshot.severity}
               </p>
               <p>
@@ -1025,13 +1360,13 @@ export default function App() {
         </section>
 
         <section className="panel decision-output">
-          <h2>Resultat automatique</h2>
+          <h2>Résultat automatique</h2>
           {!decisionResult ? <p className="muted">Lance une analyse pour afficher la recommandation.</p> : null}
 
           {decisionResult ? (
             <div className="decision-grid">
               <div className="card">
-                <h3>Voie selectionnee</h3>
+                <h3>Voie sélectionnée</h3>
                 <p>
                   <strong>{decisionResult.road.designation}</strong> ({decisionResult.road.roadCode})
                 </p>
@@ -1044,7 +1379,7 @@ export default function App() {
               </div>
 
               <div className="card">
-                <h3>Degradation</h3>
+                <h3>Dégradation</h3>
                 <p>{decisionResult.degradation.name}</p>
                 <p>
                   <strong>Cause probable:</strong> {decisionResult.probableCause}
@@ -1052,15 +1387,15 @@ export default function App() {
               </div>
 
               <div className="card">
-                <h3>Deflexion</h3>
+                <h3>Déflexion</h3>
                 <p>
-                  <strong>D:</strong> {decisionResult.deflection.value ?? "non renseigne"}
+                  <strong>D:</strong> {decisionResult.deflection.value ?? "non renseigné"}
                 </p>
                 <p>
-                  <strong>Etat:</strong> {decisionResult.deflection.severity}
+                  <strong>État:</strong> {toDeflectionSeverityLabel(decisionResult.deflection.severity)}
                 </p>
                 <p>
-                  <strong>Intervention:</strong> {decisionResult.deflection.recommendation}
+                  <strong>Intervention:</strong> {toDeflectionRecommendationLabel(decisionResult.deflection.recommendation)}
                 </p>
               </div>
 
@@ -1083,8 +1418,8 @@ export default function App() {
                   isToDetermineIntervention(decisionResult.contextualIntervention) ? "card--warning" : ""
                 }`}
               >
-                <h3>Intervention contextuelle troncon</h3>
-                <p>{decisionResult.contextualIntervention || "a determiner (A D)"}</p>
+                <h3>Intervention contextuelle tronçon</h3>
+                <p>{decisionResult.contextualIntervention || "à déterminer (A D)"}</p>
               </div>
 
               <div className="card card--full">
@@ -1095,7 +1430,7 @@ export default function App() {
                       <li key={`${decisionResult.degradation.id}-${index}`}>{cause}</li>
                     ))
                   ) : (
-                    <li>Aucune cause detaillee en base pour cette degradation.</li>
+                    <li>Aucune cause détaillée en base pour cette dégradation.</li>
                   )}
                 </ul>
               </div>
@@ -1111,7 +1446,7 @@ export default function App() {
       <main className="workspace workspace--full">
         <section className="panel table-panel table-panel--full">
           <h2>Catalogue des voies</h2>
-          <p className="muted">Reference complete des voies par secteur SAP.</p>
+          <p className="muted">Référence complète des voies par secteur SAP.</p>
 
           <div className="table-toolbar table-toolbar--triple">
             <select value={selectedSap} onChange={(event) => setSelectedSap(event.target.value)}>
@@ -1138,12 +1473,12 @@ export default function App() {
                   <th>SAP</th>
                   <th>Code</th>
                   <th>Designation</th>
-                  <th>Debut</th>
+                  <th>Début</th>
                   <th>Fin</th>
                   <th>Longueur (m)</th>
                   <th>Largeur (m)</th>
                   <th>Revetement</th>
-                  <th>Etat chaussee</th>
+                  <th>État chaussée</th>
                   <th>Type caniveaux</th>
                   <th>Description assain.</th>
                 </tr>
@@ -1179,7 +1514,7 @@ export default function App() {
                 ))}
                 {roads.length === 0 ? (
                   <tr>
-                    <td colSpan={12}>Aucune voie trouvee.</td>
+                    <td colSpan={12}>Aucune voie trouvée.</td>
                   </tr>
                 ) : null}
               </tbody>
@@ -1194,16 +1529,16 @@ export default function App() {
     return (
       <main className="workspace workspace--full">
         <section className="panel table-panel table-panel--full">
-          <h2>Catalogue des degradations</h2>
-          <p className="muted">Liste des degradations, causes probables et solution de maintenance.</p>
+          <h2>Catalogue des dégradations</h2>
+          <p className="muted">Liste des dégradations, causes probables et solution de maintenance.</p>
 
           <div className="table-toolbar table-toolbar--triple">
             <input
               value={degradationSearch}
               onChange={(event) => setDegradationSearch(event.target.value)}
-              placeholder="Recherche degradation ou cause"
+              placeholder="Recherche dégradation ou cause"
             />
-            <span className="muted">{filteredDegradations.length} degradation(s)</span>
+            <span className="muted">{filteredDegradations.length} dégradation(s)</span>
             <span className="muted">{degradations.length} total</span>
           </div>
 
@@ -1212,7 +1547,7 @@ export default function App() {
               <thead>
                 <tr>
                   <th>Action</th>
-                  <th>Degradation</th>
+                  <th>Dégradation</th>
                   <th>Nb causes</th>
                   <th>Cause principale</th>
                   <th>Source solution</th>
@@ -1255,7 +1590,7 @@ export default function App() {
                 ))}
                 {filteredDegradations.length === 0 ? (
                   <tr>
-                    <td colSpan={6}>Aucune degradation trouvee.</td>
+                    <td colSpan={6}>Aucune dégradation trouvée.</td>
                   </tr>
                 ) : null}
               </tbody>
@@ -1264,7 +1599,7 @@ export default function App() {
 
           {selectedDegradation ? (
             <div className="card card--spaced">
-              <h3>Causes detaillees: {selectedDegradation.name}</h3>
+              <h3>Causes détaillées: {selectedDegradation.name}</h3>
               <p>
                 <strong>Source solution:</strong> {toSolutionSourceLabel(selectedDegradation.solutionSource)}
               </p>
@@ -1272,19 +1607,19 @@ export default function App() {
                 {selectedDegradation.causes.length > 0 ? (
                   selectedDegradation.causes.map((cause, index) => <li key={`${selectedDegradation.id}-cause-${index}`}>{cause}</li>)
                 ) : (
-                  <li>Aucune cause detaillee pour cette degradation.</li>
+                  <li>Aucune cause détaillée pour cette dégradation.</li>
                 )}
               </ul>
 
-              <h3>Parametrage solution de maintenance</h3>
-              <label htmlFor="template-key">Modele de solution</label>
+              <h3>Paramétrage solution de maintenance</h3>
+              <label htmlFor="template-key">Modèle de solution</label>
               <select
                 id="template-key"
                 value={selectedTemplateKey}
                 onChange={(event) => setSelectedTemplateKey(event.target.value)}
                 disabled={isSolutionBusy}
               >
-                <option value="">Selectionner un modele</option>
+                <option value="">Sélectionner un modèle</option>
                 {solutionTemplates.map((template) => (
                   <option key={template.templateKey} value={template.templateKey}>
                     {template.title}
@@ -1294,17 +1629,17 @@ export default function App() {
 
               <div className="editor-actions">
                 <button className="row-action" type="button" onClick={handleAssignSolutionTemplate} disabled={isSolutionBusy}>
-                  Appliquer modele
+                  Appliquer le modèle
                 </button>
               </div>
 
-              <label htmlFor="solution-override">Solution personnalisee</label>
+              <label htmlFor="solution-override">Solution personnalisée</label>
               <textarea
                 id="solution-override"
                 className="input-textarea"
                 value={solutionDraft}
                 onChange={(event) => setSolutionDraft(event.target.value)}
-                placeholder="Saisir la solution de maintenance specifique a cette degradation"
+                placeholder="Saisir la solution de maintenance spécifique à cette dégradation"
                 rows={5}
                 disabled={isSolutionBusy}
               />
@@ -1321,8 +1656,8 @@ export default function App() {
           ) : null}
 
           <div className="card card--spaced">
-            <h3>Moteur assainissement (regles)</h3>
-            <p className="muted">Regles utilisees automatiquement pendant l'evaluation de decision.</p>
+            <h3>Moteur assainissement (règles)</h3>
+            <p className="muted">Règles utilisées automatiquement pendant l'évaluation de décision.</p>
 
             <div className="table-wrap">
               <table>
@@ -1330,9 +1665,9 @@ export default function App() {
                   <tr>
                     <th>Actions</th>
                     <th>Ordre</th>
-                    <th>Operateur</th>
+                    <th>Opérateur</th>
                     <th>Pattern</th>
-                    <th>Question decideur</th>
+                    <th>Question décideur</th>
                     <th>Alerte</th>
                     <th>Active</th>
                     <th>Recommandation</th>
@@ -1347,8 +1682,8 @@ export default function App() {
                             className="row-action row-action--icon"
                             type="button"
                             onClick={() => handleEditDrainageRule(rule)}
-                            title="Editer"
-                            aria-label="Editer"
+                            title="Éditer"
+                            aria-label="Éditer"
                           >
                             <Pencil size={16} aria-hidden="true" />
                           </button>
@@ -1374,7 +1709,7 @@ export default function App() {
                   ))}
                   {drainageRules.length === 0 ? (
                     <tr>
-                      <td colSpan={8}>Aucune regle assainissement.</td>
+                      <td colSpan={8}>Aucune règle assainissement.</td>
                     </tr>
                   ) : null}
                 </tbody>
@@ -1382,11 +1717,11 @@ export default function App() {
             </div>
 
             <h3 className="drainage-editor-title">
-              {editingDrainageRuleId ? `Edition regle #${editingDrainageRuleId}` : "Nouvelle regle assainissement"}
+              {editingDrainageRuleId ? `Édition règle #${editingDrainageRuleId}` : "Nouvelle règle assainissement"}
             </h3>
             <div className="cells-grid">
               <div className="cell-field">
-                <label htmlFor="dr-rule-order">Rule order</label>
+                <label htmlFor="dr-rule-order">Ordre de règle</label>
                 <input
                   id="dr-rule-order"
                   type="number"
@@ -1398,7 +1733,7 @@ export default function App() {
               </div>
 
               <div className="cell-field">
-                <label htmlFor="dr-rule-operator">Operateur</label>
+                <label htmlFor="dr-rule-operator">Opérateur</label>
                 <select
                   id="dr-rule-operator"
                   value={drainageRuleOperator}
@@ -1419,7 +1754,7 @@ export default function App() {
                   id="dr-rule-pattern"
                   value={drainageRulePattern}
                   onChange={(event) => setDrainageRulePattern(event.target.value)}
-                  placeholder={drainageRuleOperator === "ALWAYS" ? "Non utilise avec ALWAYS" : "Ex: OBSTR"}
+                  placeholder={drainageRuleOperator === "ALWAYS" ? "Non utilisé avec ALWAYS" : "Ex: OBSTR"}
                   disabled={isDrainageRuleBusy || drainageRuleOperator === "ALWAYS"}
                 />
               </div>
@@ -1433,7 +1768,7 @@ export default function App() {
                 onChange={(event) => setDrainageRuleAskRequired(event.target.checked)}
                 disabled={isDrainageRuleBusy}
               />
-              Regle appliquee seulement si "Interroger explicitement l'assainissement" est coche
+              Règle appliquée seulement si "Interroger explicitement l'assainissement" est coché
             </label>
 
             <label className="checkbox-row" htmlFor="dr-rule-needs-attention">
@@ -1444,7 +1779,7 @@ export default function App() {
                 onChange={(event) => setDrainageRuleNeedsAttention(event.target.checked)}
                 disabled={isDrainageRuleBusy}
               />
-              Declenche une alerte assainissement
+              Déclenche une alerte assainissement
             </label>
 
             <label className="checkbox-row" htmlFor="dr-rule-active">
@@ -1455,7 +1790,7 @@ export default function App() {
                 onChange={(event) => setDrainageRuleActive(event.target.checked)}
                 disabled={isDrainageRuleBusy}
               />
-              Regle active
+              Règle active
             </label>
 
             <label htmlFor="dr-rule-reco">Recommandation</label>
@@ -1471,10 +1806,10 @@ export default function App() {
 
             <div className="editor-actions">
               <button className="primary" type="button" onClick={handleSaveDrainageRule} disabled={isDrainageRuleBusy}>
-                {isDrainageRuleBusy ? "Enregistrement..." : "Enregistrer regle"}
+                {isDrainageRuleBusy ? "Enregistrement..." : "Enregistrer règle"}
               </button>
               <button className="row-action" type="button" onClick={resetDrainageRuleEditor} disabled={isDrainageRuleBusy}>
-                Reinitialiser
+                Réinitialiser
               </button>
               <button
                 className="row-action row-action--danger"
@@ -1491,12 +1826,352 @@ export default function App() {
     );
   }
 
+  function renderMaintenanceView() {
+    return (
+      <main className="workspace">
+        <section className="panel editor-panel">
+          <h2>Suivi des entretiens</h2>
+          <p className="muted">Enregistre les interventions réalisées pour garder un état dynamique du réseau.</p>
+
+          <label htmlFor="maintenance-road">Voie</label>
+          <select
+            id="maintenance-road"
+            value={maintenanceRoadId}
+            onChange={(event) => setMaintenanceRoadId(event.target.value ? Number(event.target.value) : "")}
+            disabled={isMaintenanceBusy}
+          >
+            <option value="">Sélectionner une voie</option>
+            {allRoads.map((road) => (
+              <option key={road.id} value={road.id}>
+                {road.sapCode || "SAP?"} | {road.roadCode} | {road.designation}
+              </option>
+            ))}
+          </select>
+
+          <label htmlFor="maintenance-degradation">Dégradation concernée</label>
+          <select
+            id="maintenance-degradation"
+            value={maintenanceDegradationCode}
+            onChange={(event) => setMaintenanceDegradationCode(event.target.value)}
+            disabled={isMaintenanceBusy}
+          >
+            <option value="">Aucune dégradation précise</option>
+            {degradations.map((item) => (
+              <option key={item.code} value={item.code}>
+                {item.name}
+              </option>
+            ))}
+          </select>
+
+          <label htmlFor="maintenance-type">Type d'entretien</label>
+          <input
+            id="maintenance-type"
+            list="maintenance-type-options"
+            value={maintenanceType}
+            onChange={(event) => setMaintenanceType(event.target.value)}
+            placeholder="Ex: Curage caniveaux"
+            disabled={isMaintenanceBusy}
+          />
+          <datalist id="maintenance-type-options">
+            {MAINTENANCE_TYPE_SUGGESTIONS.map((item) => (
+              <option key={item} value={item} />
+            ))}
+          </datalist>
+
+          <label htmlFor="maintenance-status">Statut</label>
+          <select
+            id="maintenance-status"
+            value={maintenanceStatus}
+            onChange={(event) => setMaintenanceStatus(event.target.value as MaintenanceInterventionStatus)}
+            disabled={isMaintenanceBusy}
+          >
+            {MAINTENANCE_STATUSES.map((item) => (
+              <option key={item} value={item}>
+                {toMaintenanceStatusLabel(item)}
+              </option>
+            ))}
+          </select>
+
+          <div className="maintenance-form-grid">
+            <div className="cell-field">
+              <label htmlFor="maintenance-date">Date d'intervention</label>
+              <input
+                id="maintenance-date"
+                type="date"
+                value={maintenanceDate}
+                onChange={(event) => setMaintenanceDate(event.target.value)}
+                disabled={isMaintenanceBusy}
+              />
+            </div>
+
+            <div className="cell-field">
+              <label htmlFor="maintenance-completion-date">Date de clôture</label>
+              <input
+                id="maintenance-completion-date"
+                type="date"
+                value={maintenanceCompletionDate}
+                onChange={(event) => setMaintenanceCompletionDate(event.target.value)}
+                disabled={isMaintenanceBusy}
+              />
+            </div>
+
+            <div className="cell-field">
+              <label htmlFor="maintenance-state-before">État avant</label>
+              <input
+                id="maintenance-state-before"
+                value={maintenanceStateBefore}
+                onChange={(event) => setMaintenanceStateBefore(event.target.value)}
+                placeholder="État observé avant intervention"
+                disabled={isMaintenanceBusy}
+              />
+            </div>
+
+            <div className="cell-field">
+              <label htmlFor="maintenance-state-after">État après</label>
+              <input
+                id="maintenance-state-after"
+                value={maintenanceStateAfter}
+                onChange={(event) => setMaintenanceStateAfter(event.target.value)}
+                placeholder="État après travaux"
+                disabled={isMaintenanceBusy}
+              />
+            </div>
+
+            <div className="cell-field">
+              <label htmlFor="maintenance-deflection-before">Déflexion avant (D)</label>
+              <input
+                id="maintenance-deflection-before"
+                type="number"
+                value={maintenanceDeflectionBefore}
+                onChange={(event) => setMaintenanceDeflectionBefore(event.target.value)}
+                disabled={isMaintenanceBusy}
+              />
+            </div>
+
+            <div className="cell-field">
+              <label htmlFor="maintenance-deflection-after">Déflexion après (D)</label>
+              <input
+                id="maintenance-deflection-after"
+                type="number"
+                value={maintenanceDeflectionAfter}
+                onChange={(event) => setMaintenanceDeflectionAfter(event.target.value)}
+                disabled={isMaintenanceBusy}
+              />
+            </div>
+
+            <div className="cell-field">
+              <label htmlFor="maintenance-contractor">Prestataire / équipe</label>
+              <input
+                id="maintenance-contractor"
+                value={maintenanceContractorName}
+                onChange={(event) => setMaintenanceContractorName(event.target.value)}
+                placeholder="Ex: Équipe interne"
+                disabled={isMaintenanceBusy}
+              />
+            </div>
+
+            <div className="cell-field">
+              <label htmlFor="maintenance-cost">Coût estimé</label>
+              <input
+                id="maintenance-cost"
+                type="number"
+                value={maintenanceCostAmount}
+                onChange={(event) => setMaintenanceCostAmount(event.target.value)}
+                placeholder="FCFA"
+                disabled={isMaintenanceBusy}
+              />
+            </div>
+          </div>
+
+          <label htmlFor="maintenance-solution">Solution appliquée</label>
+          <textarea
+            id="maintenance-solution"
+            className="input-textarea"
+            value={maintenanceSolutionApplied}
+            onChange={(event) => setMaintenanceSolutionApplied(event.target.value)}
+            placeholder="Solution de maintenance effectivement appliquée"
+            rows={4}
+            disabled={isMaintenanceBusy}
+          />
+
+          <label htmlFor="maintenance-observation">Observation</label>
+          <textarea
+            id="maintenance-observation"
+            className="input-textarea"
+            value={maintenanceObservation}
+            onChange={(event) => setMaintenanceObservation(event.target.value)}
+            placeholder="Commentaires de terrain, resultat, contraintes..."
+            rows={4}
+            disabled={isMaintenanceBusy}
+          />
+
+          <div className="editor-actions">
+            <button className="primary" type="button" onClick={handleSaveMaintenance} disabled={isMaintenanceBusy}>
+              {isMaintenanceBusy ? "Enregistrement..." : "Enregistrer entretien"}
+            </button>
+            <button className="row-action" type="button" onClick={resetMaintenanceForm} disabled={isMaintenanceBusy}>
+              Réinitialiser
+            </button>
+            <button
+              className="row-action row-action--danger"
+              type="button"
+              onClick={() => handleDeleteMaintenance()}
+              disabled={isMaintenanceBusy || !editingMaintenanceId}
+            >
+              Supprimer
+            </button>
+          </div>
+
+          {maintenanceSelectedRoad ? (
+            <div className="card card--spaced">
+              <h3>Voie suivie</h3>
+              <p>
+                <strong>{maintenanceSelectedRoad.designation}</strong> ({maintenanceSelectedRoad.roadCode})
+              </p>
+              <p>
+                <strong>SAP:</strong> {maintenanceSelectedRoad.sapCode || "-"}
+              </p>
+              <p>
+                <strong>État importé:</strong> {maintenanceSelectedRoad.pavementState || "-"}
+              </p>
+            </div>
+          ) : null}
+        </section>
+
+        <section className="panel table-panel">
+          <h2>Historique des entretiens</h2>
+          <p className="muted">Suivi chronologique des interventions prévues, en cours et terminées.</p>
+
+          <div className="table-toolbar table-toolbar--penta">
+            <select value={maintenanceSap} onChange={(event) => setMaintenanceSap(event.target.value)}>
+              <option value="">Tous les secteurs</option>
+              {sapSectors.map((sector) => (
+                <option key={sector.code} value={sector.code}>
+                  {sector.code}
+                </option>
+              ))}
+            </select>
+            <select
+              value={maintenanceRoadFilterId}
+              onChange={(event) => setMaintenanceRoadFilterId(event.target.value ? Number(event.target.value) : "")}
+            >
+              <option value="">Toutes les voies</option>
+              {maintenanceFilterRoadOptions.map((road) => (
+                <option key={`filter-${road.id}`} value={road.id}>
+                  {road.roadCode} | {road.designation}
+                </option>
+              ))}
+            </select>
+            <select
+              value={maintenanceStatusFilter}
+              onChange={(event) =>
+                setMaintenanceStatusFilter(event.target.value as MaintenanceInterventionStatus | "")
+              }
+            >
+              <option value="">Tous statuts</option>
+              {MAINTENANCE_STATUSES.map((status) => (
+                <option key={status} value={status}>
+                  {toMaintenanceStatusLabel(status)}
+                </option>
+              ))}
+            </select>
+            <input
+              value={maintenanceSearch}
+              onChange={(event) => setMaintenanceSearch(event.target.value)}
+              placeholder="Recherche voie, type, solution, observation"
+            />
+            <button
+              className="row-action row-action--with-icon"
+              type="button"
+              onClick={() => loadMaintenanceRows()}
+              disabled={isMaintenanceLoading}
+            >
+              <RefreshCw size={15} aria-hidden="true" />
+              <span>Actualiser</span>
+            </button>
+          </div>
+
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Actions</th>
+                  <th>Date</th>
+                  <th>Statut</th>
+                  <th>SAP</th>
+                  <th>Voie</th>
+                  <th>Type</th>
+                  <th>Dégradation</th>
+                  <th>État avant</th>
+                  <th>État après</th>
+                  <th>Solution appliquée</th>
+                  <th>Prestataire</th>
+                  <th>Coût</th>
+                </tr>
+              </thead>
+              <tbody>
+                {maintenanceRows.map((item) => (
+                  <tr key={item.id} className={editingMaintenanceId === item.id ? "is-selected" : ""}>
+                    <td>
+                      <div className="row-buttons">
+                        <button
+                          className="row-action row-action--icon"
+                          type="button"
+                          onClick={() => handleEditMaintenance(item)}
+                          title="Éditer"
+                          aria-label="Éditer"
+                        >
+                          <Pencil size={16} aria-hidden="true" />
+                        </button>
+                        <button
+                          className="row-action row-action--danger row-action--icon"
+                          type="button"
+                          onClick={() => handleDeleteMaintenance(item.id)}
+                          title="Supprimer"
+                          aria-label="Supprimer"
+                        >
+                          <Trash2 size={16} aria-hidden="true" />
+                        </button>
+                      </div>
+                    </td>
+                    <td>{item.interventionDate}</td>
+                    <td>
+                      <span className={`status-chip status-chip--${item.status.toLowerCase()}`}>
+                        {toMaintenanceStatusLabel(item.status)}
+                      </span>
+                    </td>
+                    <td>{item.sapCode || "-"}</td>
+                    <td>
+                      {item.roadCode} - {item.roadDesignation}
+                    </td>
+                    <td>{item.interventionType}</td>
+                    <td>{item.degradationName || "-"}</td>
+                    <td>{item.stateBefore || "-"}</td>
+                    <td>{item.stateAfter || "-"}</td>
+                    <td>{item.solutionApplied || "-"}</td>
+                    <td>{item.contractorName || "-"}</td>
+                    <td>{formatAmount(item.costAmount)}</td>
+                  </tr>
+                ))}
+                {maintenanceRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={12}>{isMaintenanceLoading ? "Chargement..." : "Aucun entretien enregistré."}</td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    );
+  }
+
   function renderHistoryView() {
     return (
       <main className="workspace workspace--full">
         <section className="panel table-panel table-panel--full">
           <h2>Historique et reporting</h2>
-          <p className="muted">Historique des decisions calculees avec export CSV.</p>
+          <p className="muted">Historique des décisions calculées avec export CSV.</p>
 
           <div className="table-toolbar table-toolbar--penta">
             <select value={historySap} onChange={(event) => setHistorySap(event.target.value)}>
@@ -1510,7 +2185,7 @@ export default function App() {
             <input
               value={historySearch}
               onChange={(event) => setHistorySearch(event.target.value)}
-              placeholder="Recherche voie/degradation/cause"
+              placeholder="Recherche voie/dégradation/cause"
             />
             <button className="row-action" type="button" onClick={() => loadHistory()} disabled={isHistoryLoading}>
               Actualiser
@@ -1530,10 +2205,10 @@ export default function App() {
                   <th>Date</th>
                   <th>SAP</th>
                   <th>Voie</th>
-                  <th>Degradation</th>
+                  <th>Dégradation</th>
                   <th>Cause probable</th>
                   <th>D</th>
-                  <th>Severite</th>
+                  <th>Sévérité</th>
                   <th>Intervention</th>
                   <th>Assainissement</th>
                 </tr>
@@ -1549,8 +2224,8 @@ export default function App() {
                     <td>{row.degradationName}</td>
                     <td>{row.probableCause}</td>
                     <td>{row.deflectionValue ?? "-"}</td>
-                    <td>{row.deflectionSeverity}</td>
-                    <td>{row.deflectionRecommendation}</td>
+                    <td>{toDeflectionSeverityLabel(row.deflectionSeverity)}</td>
+                    <td>{toDeflectionRecommendationLabel(row.deflectionRecommendation)}</td>
                     <td>{row.drainageRecommendation}</td>
                   </tr>
                 ))}
@@ -1574,7 +2249,7 @@ export default function App() {
       <main className="workspace">
         <section className="panel editor-panel">
           <h2>{activeSheet?.title ?? "Feuille"}</h2>
-          <p className="muted">{activeSheet?.description ?? "Selectionne une feuille"}</p>
+          <p className="muted">{activeSheet?.description ?? "Sélectionne une feuille"}</p>
 
           <div className="cells-grid">
             {activeColumns.map((column) => (
@@ -1599,7 +2274,7 @@ export default function App() {
               {editingRowId ? "Enregistrer" : "Ajouter"}
             </button>
             <button className="row-action" type="button" onClick={resetDraft} disabled={isBusy}>
-              Reinitialiser
+              Réinitialiser
             </button>
             <button
               className="row-action row-action--danger"
@@ -1677,8 +2352,8 @@ export default function App() {
                           className="row-action row-action--icon"
                           type="button"
                           onClick={() => handleEdit(row)}
-                          title="Editer"
-                          aria-label="Editer"
+                          title="Éditer"
+                          aria-label="Éditer"
                         >
                           <Pencil size={16} aria-hidden="true" />
                         </button>
@@ -1697,7 +2372,7 @@ export default function App() {
                     {activeColumns.map((column) => {
                       const rawValue = String(row[column] ?? "");
                       const isFeuil3Intervention = activeSheet?.name === "Feuil3" && column === "L";
-                      const value = isFeuil3Intervention && !rawValue.trim() ? "a determiner (A D)" : rawValue;
+                      const value = isFeuil3Intervention && !rawValue.trim() ? "à déterminer (A D)" : rawValue;
                       return (
                         <td
                           key={`${row.id}-${column}`}
@@ -1741,15 +2416,15 @@ export default function App() {
         <div className="hero__brand">
           <img className="hero-logo" src="/logo-pad.png" alt="Logo Port Autonome de Douala" />
           <div>
-            <h1>PAD Outil de Maintenance Routiere</h1>
-            <p>Pilotez la maintenance routiere du PAD avec des decisions rapides et fiables.</p>
+            <h1>PAD Outil de Maintenance Routière</h1>
+            <p>Pilotez la maintenance routière du PAD avec des décisions rapides et fiables.</p>
           </div>
         </div>
 
         <div className="hero__status">
           <span className="pill">Total lignes: {status?.totalRows ?? "-"}</span>
           <span className="pill">Voies: {roads.length}</span>
-          <span className="pill">Degradations: {degradations.length}</span>
+          <span className="pill">Dégradations: {degradations.length}</span>
           <span className="pill">Historique: {status?.decisionHistoryCount ?? 0}</span>
           <span className="pill">Dernier import: {status?.lastImportAt ?? "-"}</span>
         </div>
@@ -1779,7 +2454,7 @@ export default function App() {
         {notice ? <p className="hero__notice">{notice}</p> : null}
         <nav className="hero__nav">
           <button className={activeView === "decision" ? "active" : ""} type="button" onClick={() => setActiveView("decision")}>
-            Aide decision
+            Aide à la décision
           </button>
           <button className={activeView === "catalogue" ? "active" : ""} type="button" onClick={() => setActiveView("catalogue")}>
             Catalogue
@@ -1789,7 +2464,10 @@ export default function App() {
             type="button"
             onClick={() => setActiveView("degradations")}
           >
-            Degradations
+            Dégradations
+          </button>
+          <button className={activeView === "maintenance" ? "active" : ""} type="button" onClick={() => setActiveView("maintenance")}>
+            Suivi
           </button>
           <button className={activeView === "history" ? "active" : ""} type="button" onClick={() => setActiveView("history")}>
             Historique
@@ -1810,6 +2488,7 @@ export default function App() {
       {activeView === "decision" ? renderDecisionView() : null}
       {activeView === "catalogue" ? renderCatalogueView() : null}
       {activeView === "degradations" ? renderDegradationsView() : null}
+      {activeView === "maintenance" ? renderMaintenanceView() : null}
       {activeView === "history" ? renderHistoryView() : null}
       {activeView.startsWith("sheet:") ? renderSheetView() : null}
 
