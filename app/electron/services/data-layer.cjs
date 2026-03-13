@@ -1867,10 +1867,16 @@ function importFromExcelInternal(db, excelPath) {
   }
 
   const workbook = XLSX.readFile(excelPath);
+  const missingSheets = SHEET_DEFINITIONS.filter((sheet) => !workbook.Sheets[sheet.name]).map((sheet) => sheet.name);
+  if (missingSheets.length > 0) {
+    throw new Error(`Fichier Excel invalide: feuilles manquantes (${missingSheets.join(", ")}).`);
+  }
+
   const tx = db.transaction(() => {
     for (const sheet of SHEET_DEFINITIONS) {
-      const rows = getSheetRows(workbook, sheet.name);
+      const rows = getSheetRows(workbook, sheet);
       db.prepare(`DELETE FROM ${sheet.table}`).run();
+      resetAutoincrementSequence(db, sheet.table);
       const insert = db.prepare(`
         INSERT INTO ${sheet.table} (
           row_no,
@@ -3035,12 +3041,50 @@ function setMeta(db, key, value) {
   ).run(key, value);
 }
 
-function getSheetRows(workbook, sheetName) {
+function resetAutoincrementSequence(db, tableName) {
+  if (!tableExists(db, tableName)) {
+    return;
+  }
+  db.prepare("DELETE FROM sqlite_sequence WHERE name = ?").run(tableName);
+}
+
+function getSheetRows(workbook, sheetRef) {
+  const sheetName = typeof sheetRef === "string" ? sheetRef : sheetRef?.name;
+  const sheetDef =
+    typeof sheetRef === "string" ? SHEET_DEFINITIONS.find((item) => item.name === sheetRef) || null : sheetRef;
   const sheet = workbook.Sheets[sheetName];
   if (!sheet) {
     return [];
   }
-  return XLSX.utils.sheet_to_json(sheet, { header: "A", defval: "" });
+
+  const expectedColumns = sheetDef?.columns || COLUMN_KEYS;
+  const rawRows = XLSX.utils.sheet_to_json(sheet, {
+    header: "A",
+    defval: "",
+    raw: false,
+    blankrows: false
+  });
+
+  const parsedRows = [];
+  for (const rawRow of rawRows) {
+    const row = {};
+    let hasValue = false;
+
+    for (const column of expectedColumns) {
+      const value = toText(rawRow[column]);
+      row[column] = value;
+      if (value) {
+        hasValue = true;
+      }
+    }
+
+    if (!hasValue) {
+      continue;
+    }
+    parsedRows.push(row);
+  }
+
+  return parsedRows;
 }
 
 function toText(value) {

@@ -1,7 +1,6 @@
 ﻿import { useCallback, useEffect, useMemo, useState } from "react";
 import { padApi } from "./lib/pad-api";
 import type {
-  DataIntegrityReport,
   DataStatus,
   DecisionHistoryItem,
   DecisionResult,
@@ -90,6 +89,14 @@ function toDisplay(value: unknown) {
   return text || "-";
 }
 
+function getDisplayRowNumber(row: Pick<SheetRow, "rowNo" | "id">) {
+  const value = Number(row.rowNo);
+  if (Number.isFinite(value) && value > 0) {
+    return value;
+  }
+  return row.id;
+}
+
 function toFrenchBoolean(value: unknown) {
   const normalized = normalizeLabel(value);
   if (["TRUE", "VRAI", "1", "YES", "OUI"].includes(normalized)) {
@@ -117,13 +124,6 @@ function isToDetermineIntervention(value: unknown) {
     return true;
   }
   return /A\s*DETERMINER|\(A\s*D\)/.test(normalized);
-}
-
-function getIntegrityIssueTotal(report: DataIntegrityReport | null) {
-  if (!report) {
-    return 0;
-  }
-  return report.issues.reduce((sum, issue) => sum + Number(issue.count || 0), 0);
 }
 
 function buildFeuil4Snapshot(rows: SheetRow[]): Feuil4Snapshot | null {
@@ -169,7 +169,6 @@ export default function App() {
   const appName = window.padApp?.appName || "PAD Maintenance Routiere";
   const appVersion = window.padApp?.appVersion || "0.0.0";
   const [status, setStatus] = useState<DataStatus | null>(null);
-  const [integrityReport, setIntegrityReport] = useState<DataIntegrityReport | null>(null);
   const [definitions, setDefinitions] = useState<SheetDefinition[]>([]);
   const [activeView, setActiveView] = useState<string>("decision");
 
@@ -239,7 +238,6 @@ export default function App() {
       return item.name.toLowerCase().includes(searchTerm) || item.causes.join(" ").toLowerCase().includes(searchTerm);
     });
   }, [degradationSearch, degradations]);
-  const integrityIssueTotal = useMemo(() => getIntegrityIssueTotal(integrityReport), [integrityReport]);
 
   const refreshStatus = useCallback(async () => {
     const nextStatus = await padApi.getDataStatus();
@@ -311,11 +309,6 @@ export default function App() {
     setDrainageRules(items);
   }, []);
 
-  const loadIntegrityReport = useCallback(async () => {
-    const report = await padApi.getDataIntegrityReport();
-    setIntegrityReport(report);
-  }, []);
-
   const loadFeuil4Snapshot = useCallback(async () => {
     try {
       const feuil4Rows = await padApi.listSheetRows("Feuil4", { limit: 300 });
@@ -348,8 +341,7 @@ export default function App() {
           loadHistory(),
           loadFeuil4Snapshot(),
           loadSolutionTemplates(),
-          loadDrainageRules(),
-          loadIntegrityReport()
+          loadDrainageRules()
         ]);
 
         if (cancelled) {
@@ -379,7 +371,6 @@ export default function App() {
     loadDrainageRules,
     loadFeuil4Snapshot,
     loadHistory,
-    loadIntegrityReport,
     loadRoads,
     loadSolutionTemplates,
     refreshDecisionCatalogs,
@@ -446,8 +437,7 @@ export default function App() {
         loadHistory(),
         loadFeuil4Snapshot(),
         loadSolutionTemplates(),
-        loadDrainageRules(),
-        loadIntegrityReport()
+        loadDrainageRules()
       ]);
       if (activeView.startsWith("sheet:")) {
         await loadRows();
@@ -482,8 +472,7 @@ export default function App() {
         loadHistory(),
         loadFeuil4Snapshot(),
         loadSolutionTemplates(),
-        loadDrainageRules(),
-        loadIntegrityReport()
+        loadDrainageRules()
       ]);
       if (activeView.startsWith("sheet:")) {
         await loadRows();
@@ -541,7 +530,7 @@ export default function App() {
 
     setEditingRowId(row.id);
     setDraftCells(nextCells);
-    setNotice(`Edition de la ligne #${row.id}`);
+    setNotice(`Edition de la ligne ${getDisplayRowNumber(row)}.`);
     setError("");
   }
 
@@ -555,13 +544,14 @@ export default function App() {
       const payload = toPayload(activeSheet.columns, draftCells);
       if (editingRowId) {
         await padApi.updateSheetRow(activeSheet.name, editingRowId, payload);
-        setNotice(`Ligne #${editingRowId} mise a jour.`);
+        const currentRow = rows.find((row) => row.id === editingRowId);
+        setNotice(`Ligne ${currentRow ? getDisplayRowNumber(currentRow) : editingRowId} mise a jour.`);
       } else {
         await padApi.createSheetRow(activeSheet.name, payload);
         setNotice("Nouvelle ligne ajoutee.");
       }
 
-      await Promise.all([refreshStatus(), loadRows(), loadIntegrityReport()]);
+      await Promise.all([refreshStatus(), loadRows()]);
       if (activeSheet.name === "Feuil4") {
         await loadFeuil4Snapshot();
       }
@@ -590,15 +580,16 @@ export default function App() {
 
     setIsBusy(true);
     try {
+      const row = rows.find((item) => item.id === id);
       await padApi.deleteSheetRow(activeSheet.name, id);
-      await Promise.all([refreshStatus(), loadRows(), loadIntegrityReport()]);
+      await Promise.all([refreshStatus(), loadRows()]);
       if (activeSheet.name === "Feuil4") {
         await loadFeuil4Snapshot();
       }
       if (editingRowId === id) {
         resetDraft();
       }
-      setNotice(`Ligne #${id} supprimee.`);
+      setNotice(`Ligne ${row ? getDisplayRowNumber(row) : id} supprimee.`);
       setError("");
     } catch (err) {
       setError(toErrorMessage(err));
@@ -1560,7 +1551,7 @@ export default function App() {
                   <>
                     <tr>
                       <th rowSpan={3}>Actions</th>
-                      <th rowSpan={3}>id</th>
+                      <th rowSpan={3}>N° ligne</th>
                       <th rowSpan={3}>{getColumnLabel(activeSheet, "A")}</th>
                       <th rowSpan={3}>{getColumnLabel(activeSheet, "B")}</th>
                       <th rowSpan={3}>{getColumnLabel(activeSheet, "C")}</th>
@@ -1588,7 +1579,7 @@ export default function App() {
                 ) : (
                   <tr>
                     <th>Actions</th>
-                    <th>id</th>
+                    <th>N° ligne</th>
                     {activeColumns.map((column) => (
                       <th key={`head-${column}`}>
                         {getColumnLabel(activeSheet, column)}
@@ -1610,7 +1601,7 @@ export default function App() {
                         </button>
                       </div>
                     </td>
-                    <td>{row.id}</td>
+                    <td>{getDisplayRowNumber(row)}</td>
                     {activeColumns.map((column) => {
                       const rawValue = String(row[column] ?? "");
                       const isFeuil3Intervention = activeSheet?.name === "Feuil3" && column === "L";
@@ -1669,9 +1660,6 @@ export default function App() {
           <span className="pill">Degradations: {degradations.length}</span>
           <span className="pill">Historique: {status?.decisionHistoryCount ?? 0}</span>
           <span className="pill">Dernier import: {status?.lastImportAt ?? "-"}</span>
-          <span className={`pill ${integrityReport?.status === "WARNING" ? "pill--warn" : "pill--ok"}`}>
-            Coherence: {integrityReport?.status === "WARNING" ? "a verifier" : "OK"} ({integrityIssueTotal})
-          </span>
         </div>
 
         <div className="hero__actions">
@@ -1694,16 +1682,6 @@ export default function App() {
 
         {error ? <p className="hero__error">{error}</p> : null}
         {notice ? <p className="hero__notice">{notice}</p> : null}
-        {integrityReport?.issues?.length ? (
-          <div className="integrity-alert">
-            <strong>Audit coherence:</strong>{" "}
-            {integrityReport.issues
-              .slice(0, 3)
-              .map((issue) => `${issue.message} (${issue.count})`)
-              .join(" | ")}
-          </div>
-        ) : null}
-
         <nav className="hero__nav">
           <button className={activeView === "decision" ? "active" : ""} type="button" onClick={() => setActiveView("decision")}>
             Aide decision
