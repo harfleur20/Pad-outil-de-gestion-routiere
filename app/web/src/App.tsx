@@ -34,6 +34,12 @@ type Feuil4Snapshot = {
   recommendation: string;
 };
 
+type DeflectionPreview = {
+  value: string;
+  severity: string;
+  recommendation: string;
+};
+
 function createEmptyCells(columns: SheetColumnKey[]): Partial<Record<SheetColumnKey, string>> {
   return columns.reduce((acc, column) => {
     acc[column] = "";
@@ -124,6 +130,32 @@ function isToDetermineIntervention(value: unknown) {
     return true;
   }
   return /A\s*DETERMINER|\(A\s*D\)/.test(normalized);
+}
+
+function classifyDeflectionPreview(value: string): DeflectionPreview {
+  const numeric = Number(String(value).replace(",", "."));
+  if (!Number.isFinite(numeric)) {
+    return {
+      value: "-",
+      severity: "NON RENSEIGNE",
+      recommendation: "Renseigner D pour proposer le niveau d'intervention."
+    };
+  }
+
+  if (numeric < 60) {
+    return { value: String(numeric), severity: "FAIBLE", recommendation: "PAS D'ENTRETIEN" };
+  }
+  if (numeric < 80) {
+    return { value: String(numeric), severity: "MOYEN", recommendation: "RENFORCEMENT LEGER" };
+  }
+  if (numeric < 90) {
+    return { value: String(numeric), severity: "FORT", recommendation: "RENFORCEMENT LOURD" };
+  }
+  return {
+    value: String(numeric),
+    severity: "TRES FORT",
+    recommendation: "REHABILITATION COUCHE DE ROULEMENT ET DE BASE"
+  };
 }
 
 function buildFeuil4Snapshot(rows: SheetRow[]): Feuil4Snapshot | null {
@@ -238,6 +270,32 @@ export default function App() {
       return item.name.toLowerCase().includes(searchTerm) || item.causes.join(" ").toLowerCase().includes(searchTerm);
     });
   }, [degradationSearch, degradations]);
+  const dynamicFeuil4Snapshot = useMemo(() => {
+    if (!selectedRoad) {
+      return null;
+    }
+
+    const fallback = feuil4Snapshot;
+    const preview = classifyDeflectionPreview(deflectionValue || fallback?.deflectionValue || "");
+    const decisionSeverity = decisionResult?.deflection?.severity || preview.severity;
+    const decisionRecommendation = decisionResult?.deflection?.recommendation || preview.recommendation;
+    const selectedRoadLabel = [selectedRoad.roadCode, selectedRoad.designation].filter(Boolean).join(" - ");
+    const hasCauses = Boolean(selectedDegradation && selectedDegradation.causes.length > 0);
+
+    return {
+      domain: fallback?.domain || "Port de Douala Bonaberi",
+      sapSector: selectedRoad.sapCode || fallback?.sapSector || "-",
+      roadLabel: selectedRoadLabel || fallback?.roadLabel || "-",
+      roadMatch: "VRAI",
+      pkStart: selectedRoad.startLabel || fallback?.pkStart || "-",
+      pkEnd: selectedRoad.endLabel || fallback?.pkEnd || "-",
+      observation: selectedDegradation?.name || fallback?.observation || "-",
+      causeMatch: selectedDegradation ? (hasCauses ? "VRAI" : "FAUX") : fallback?.causeMatch || "-",
+      deflectionValue: decisionResult?.deflection?.value != null ? String(decisionResult.deflection.value) : preview.value,
+      severity: decisionSeverity || fallback?.severity || "-",
+      recommendation: decisionRecommendation || fallback?.recommendation || "-"
+    } satisfies Feuil4Snapshot;
+  }, [decisionResult, deflectionValue, feuil4Snapshot, selectedDegradation, selectedRoad]);
 
   const refreshStatus = useCallback(async () => {
     const nextStatus = await padApi.getDataStatus();
@@ -933,32 +991,33 @@ export default function App() {
             </div>
           ) : null}
 
-          {feuil4Snapshot ? (
+          {dynamicFeuil4Snapshot ? (
             <div className="card">
-              <h3>Repere Feuil4 (valeurs importees)</h3>
+              <h3>Cockpit Decisionnel PAD</h3>
               <p>
-                <strong>Domaine:</strong> {feuil4Snapshot.domain}
+                <strong>Domaine:</strong> {dynamicFeuil4Snapshot.domain}
               </p>
               <p>
-                <strong>SAP:</strong> {feuil4Snapshot.sapSector}
+                <strong>SAP:</strong> {dynamicFeuil4Snapshot.sapSector}
               </p>
               <p>
-                <strong>Blvd/Rue:</strong> {feuil4Snapshot.roadLabel} ({feuil4Snapshot.roadMatch})
+                <strong>Blvd/Rue:</strong> {dynamicFeuil4Snapshot.roadLabel} ({dynamicFeuil4Snapshot.roadMatch})
               </p>
               <p>
-                <strong>Pk debut/fin:</strong> {feuil4Snapshot.pkStart} / {feuil4Snapshot.pkEnd}
+                <strong>Pk debut/fin:</strong> {dynamicFeuil4Snapshot.pkStart} / {dynamicFeuil4Snapshot.pkEnd}
               </p>
               <p>
-                <strong>Observation:</strong> {feuil4Snapshot.observation}
+                <strong>Observation:</strong> {dynamicFeuil4Snapshot.observation}
               </p>
               <p>
-                <strong>Validation cause:</strong> {feuil4Snapshot.causeMatch}
+                <strong>Validation cause:</strong> {dynamicFeuil4Snapshot.causeMatch}
               </p>
               <p>
-                <strong>D:</strong> {feuil4Snapshot.deflectionValue} | <strong>Etat:</strong> {feuil4Snapshot.severity}
+                <strong>D:</strong> {dynamicFeuil4Snapshot.deflectionValue} | <strong>Etat:</strong>{" "}
+                {dynamicFeuil4Snapshot.severity}
               </p>
               <p>
-                <strong>Intervention:</strong> {feuil4Snapshot.recommendation}
+                <strong>Intervention:</strong> {dynamicFeuil4Snapshot.recommendation}
               </p>
             </div>
           ) : null}
@@ -1004,7 +1063,11 @@ export default function App() {
                 </p>
               </div>
 
-              <div className="card card--full">
+              <div
+                className={`card card--full ${
+                  decisionResult.degradation.solutionSource === "MISSING" ? "card--solution-missing" : ""
+                }`}
+              >
                 <h3>Solution maintenance</h3>
                 <p>{decisionResult.maintenanceSolution}</p>
               </div>
