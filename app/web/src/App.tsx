@@ -1,5 +1,6 @@
 ﻿import { useCallback, useEffect, useMemo, useState } from "react";
 import { padApi } from "./lib/pad-api";
+import { FolderOpen, Gauge, Pencil, RefreshCw, Settings2, Trash2, Upload } from "lucide-react";
 import type {
   DataStatus,
   DecisionHistoryItem,
@@ -1152,13 +1153,14 @@ export default function App() {
                   <tr key={road.id}>
                     <td>
                       <button
-                        className="row-action"
+                        className="row-action row-action--evaluate row-action--with-icon"
                         type="button"
                         onClick={() => {
                           setSelectedRoadId(road.id);
                           setActiveView("decision");
                         }}
                       >
+                        <Gauge size={15} aria-hidden="true" />
                         Evaluer
                       </button>
                     </td>
@@ -1223,16 +1225,17 @@ export default function App() {
                     <td>
                       <div className="row-buttons">
                         <button
-                          className="row-action"
+                          className="row-action row-action--configure row-action--with-icon"
                           type="button"
                           onClick={() => {
                             setSelectedDegradationId(item.id);
                           }}
                         >
+                          <Settings2 size={15} aria-hidden="true" />
                           Configurer
                         </button>
                         <button
-                          className="row-action"
+                          className="row-action row-action--use"
                           type="button"
                           onClick={() => {
                             setSelectedDegradationId(item.id);
@@ -1340,11 +1343,23 @@ export default function App() {
                     <tr key={rule.id} className={editingDrainageRuleId === rule.id ? "is-selected" : ""}>
                       <td>
                         <div className="row-buttons">
-                          <button className="row-action" type="button" onClick={() => handleEditDrainageRule(rule)}>
-                            Editer
+                          <button
+                            className="row-action row-action--icon"
+                            type="button"
+                            onClick={() => handleEditDrainageRule(rule)}
+                            title="Editer"
+                            aria-label="Editer"
+                          >
+                            <Pencil size={16} aria-hidden="true" />
                           </button>
-                          <button className="row-action row-action--danger" type="button" onClick={() => handleDeleteDrainageRule(rule.id)}>
-                            Suppr
+                          <button
+                            className="row-action row-action--danger row-action--icon"
+                            type="button"
+                            onClick={() => handleDeleteDrainageRule(rule.id)}
+                            title="Supprimer"
+                            aria-label="Supprimer"
+                          >
+                            <Trash2 size={16} aria-hidden="true" />
                           </button>
                         </div>
                       </td>
@@ -1366,7 +1381,9 @@ export default function App() {
               </table>
             </div>
 
-            <h3>{editingDrainageRuleId ? `Edition regle #${editingDrainageRuleId}` : "Nouvelle regle assainissement"}</h3>
+            <h3 className="drainage-editor-title">
+              {editingDrainageRuleId ? `Edition regle #${editingDrainageRuleId}` : "Nouvelle regle assainissement"}
+            </h3>
             <div className="cells-grid">
               <div className="cell-field">
                 <label htmlFor="dr-rule-order">Rule order</label>
@@ -1656,11 +1673,23 @@ export default function App() {
                   <tr key={row.id} className={editingRowId === row.id ? "is-selected" : ""}>
                     <td>
                       <div className="row-buttons">
-                        <button className="row-action" type="button" onClick={() => handleEdit(row)}>
-                          Editer
+                        <button
+                          className="row-action row-action--icon"
+                          type="button"
+                          onClick={() => handleEdit(row)}
+                          title="Editer"
+                          aria-label="Editer"
+                        >
+                          <Pencil size={16} aria-hidden="true" />
                         </button>
-                        <button className="row-action row-action--danger" type="button" onClick={() => handleDeleteRow(row.id)}>
-                          Suppr
+                        <button
+                          className="row-action row-action--danger row-action--icon"
+                          type="button"
+                          onClick={() => handleDeleteRow(row.id)}
+                          title="Supprimer"
+                          aria-label="Supprimer"
+                        >
+                          <Trash2 size={16} aria-hidden="true" />
                         </button>
                       </div>
                     </td>
@@ -1733,13 +1762,16 @@ export default function App() {
             placeholder="Chemin du fichier Excel"
           />
           <button className="icon-btn" type="button" onClick={handlePickImportPath} disabled={isBusy}>
-            Parcourir
+            <FolderOpen size={16} aria-hidden="true" />
+            <span>Parcourir</span>
           </button>
           <button className="icon-btn" type="button" onClick={handleImport} disabled={isBusy}>
-            Importer
+            <Upload size={16} aria-hidden="true" />
+            <span>Importer</span>
           </button>
           <button className="icon-btn" type="button" onClick={handleRefresh} disabled={isBusy}>
-            Actualiser
+            <RefreshCw size={16} aria-hidden="true" />
+            <span>Actualiser</span>
           </button>
         </div>
 
