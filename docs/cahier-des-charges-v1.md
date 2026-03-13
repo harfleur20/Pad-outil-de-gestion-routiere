@@ -1,4 +1,4 @@
-# Cahier des charges v1 - Outil d'aide a la maintenance routiere
+﻿# Cahier des charges v1 - Outil d'aide a la maintenance routiere
 
 ## 1. Contexte
 Le client (Port de Douala-Bonaberi) souhaite une application d'aide a la decision pour la maintenance routiere.
@@ -39,6 +39,12 @@ Objectif principal: assister rapidement un decideur pour choisir une action de m
    - saisie valeur de deflexion D,
    - niveau d'etat (faible/moyen/fort/tres fort),
    - type d'intervention recommande.
+5. Extension progressive du catalogue degradations:
+   - ajout progressif de toutes les degradations restantes.
+6. Evolution du moteur de regles:
+   - moteur de regles enrichi par vagues successives.
+7. Suivi et restitution:
+   - modules de suivi, historique et reporting (niveau de base Lot 1).
 
 ### 3.3 Hors perimetre MVP
 1. SIG cartographique avance (cartes interactives detaillees).
@@ -84,7 +90,7 @@ Objectif principal: assister rapidement un decideur pour choisir une action de m
 1. Mode hors ligne obligatoire (pas d'internet requis).
 2. Temps de reponse cible: < 2 secondes sur poste standard.
 3. Interface simple, lisible, orientee operationnel.
-4. Export de resultats (CSV/PDF) en option MVP+.
+4. Export de resultats CSV inclus au Lot 1 (PDF en option MVP+).
 5. Journalisation locale minimale (audit: qui a consulte/cree une evaluation).
 
 ## 7. Criteres d'acceptation MVP
@@ -139,6 +145,10 @@ Devise: FCFA, estimation hors TVA.
 1. Montant forfaitaire Lot 1: 650 000 FCFA.
 2. Cette offre couvre le socle metier non negociable defini en section 3.4.
 3. Cette offre couvre un MVP lite: priorite au coeur metier, reduction des fonctions non essentielles.
+4. Le Lot 1 inclut aussi:
+   - ajout progressif de toutes les degradations restantes,
+   - moteur de regles enrichi,
+   - modules de suivi, historique et reporting (version de base).
 
 ## 12. Delai de livraison Lot 1
 Hypothese: validation des 3 degradations prioritaires par le client au demarrage.
@@ -160,29 +170,24 @@ Delai total cible Lot 1: 8 jours ouvres (entre 7 et 10 jours ouvres selon retour
 Total: 650 000 FCFA.
 
 ## 14. Authentification et PIN admin
-1. Mode standard (utilisateur): ouverture directe de l'application, sans login.
-2. Mode administrateur: protege par PIN admin (4 a 6 chiffres).
-3. Le PIN est requis pour les actions sensibles:
-   - import/modification des donnees de reference,
-   - mise a jour du catalogue degradations/causes/solutions,
-   - modification des parametres de l'application.
-4. Le PIN n'est pas demande pour la simple consultation et la decision metier quotidienne.
-5. Le mode admin se verrouille automatiquement apres inactivite (ex: 15 minutes).
-6. Le PIN est stocke localement sous forme hachee (non lisible en clair).
-7. Ce mecanisme n'est pas une gestion complete de comptes utilisateurs; une authentification multi-utilisateurs est un lot additionnel.
+1. Le Lot 1 livre une application sans login/PIN (demarrage direct), pour prioriser le coeur metier.
+2. Les actions d'import, CRUD et decision sont disponibles directement dans l'application desktop locale.
+3. Option Phase 2:
+   - login local par profil (`admin`, `decideur`, `operateur`),
+   - PIN admin pour actions sensibles,
+   - verrouillage auto et audit utilisateur detaille.
 
 ## 15. Modalites de paiement proposees (Lot 1)
 1. 40% a la commande (260 000 FCFA) au demarrage du projet.
-2. 40% a la livraison de la version fonctionnelle pre-recette (260 000 FCFA) à convenir.
+2. 40% a la livraison de la version fonctionnelle pre-recette (260 000 FCFA) a convenir.
 3. 20% a la recette finale et passation (130 000 FCFA).
 
 ## 16. Exclusions Lot 1 et options futures
 1. Le Lot 1 n'inclut pas:
-   - authentification multi-utilisateurs (login/mot de passe par profil),
-   - historique avance, workflow de validation, reporting avance,
+   - workflow de validation complexe,
    - application mobile,
    - cartographie SIG avancee.
 2. Extension Phase 2 (optionnelle):
-   - ajout progressif de toutes les degradations restantes,
-   - moteur de regles enrichi,
-   - modules de suivi, historique et reporting.
+   - reporting avance (tableaux de bord decisionnels),
+   - workflow de validation multi-acteurs,
+   - synchronisation multi-postes / multi-sites.

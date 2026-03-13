@@ -1,18 +1,27 @@
 {
   "name": "projet-pad",
   "version": "0.1.0",
+  "description": "Application desktop d'aide a la maintenance routiere pour le PAD.",
+  "author": "PAD Maintenance Team",
   "private": true,
   "type": "module",
+  "main": "app/electron/main.cjs",
   "scripts": {
     "dev": "concurrently -k \"npm run dev:web\" \"npm run dev:electron\"",
     "dev:web": "vite --config app/web/vite.config.ts",
-    "dev:electron": "wait-on tcp:5173 && electron app/electron/main.cjs",
+    "dev:electron": "wait-on tcp:5173 && node app/electron/start-electron.cjs",
+    "rebuild:electron": "npm rebuild better-sqlite3 --runtime=electron --target=33.4.11 --dist-url=https://electronjs.org/headers",
+    "typecheck": "tsc -p app/web/tsconfig.json --noEmit",
     "build:web": "vite build --config app/web/vite.config.ts",
+    "build": "npm run typecheck && npm run build:web",
+    "dist:win": "npm run build && electron-builder --win nsis --publish never",
     "preview:web": "vite preview --config app/web/vite.config.ts"
   },
   "dependencies": {
+    "better-sqlite3": "^11.8.1",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
@@ -20,9 +29,34 @@
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^9.1.2",
+    "electron-builder": "^24.13.3",
     "electron": "^33.2.0",
     "typescript": "^5.7.2",
     "vite": "^6.0.5",
     "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "cm.pad.maintenance",
+    "productName": "PAD Maintenance Routiere",
+    "npmRebuild": false,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "app/electron/**/*",
+      "app/web/dist/**/*",
+      "package.json"
+    ],
+    "win": {
+      "icon": "app/electron/assets/icon.ico",
+      "signAndEditExecutable": false,
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "installerIcon": "app/electron/assets/icon.ico",
+      "uninstallerIcon": "app/electron/assets/icon.ico"
+    }
   }
 }
