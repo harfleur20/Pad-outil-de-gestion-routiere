@@ -1,15 +1,20 @@
 ﻿/// <reference types="vite/client" />
 
 import type {
+  AttachmentUploadResult,
+  BackupResult,
   DataIntegrityReport,
   DataStatus,
+  DashboardSummary,
   DecisionHistoryItem,
   DecisionResult,
   DrainageRule,
   DegradationItem,
+  ImportPreview,
   MaintenanceInterventionItem,
   MaintenanceInterventionPayload,
   MaintenanceSolutionTemplate,
+  ReportExportResult,
   RoadCatalogItem,
   SapSector,
   SheetDefinition,
@@ -26,10 +31,18 @@ declare global {
       data: {
         getStatus: () => Promise<DataStatus>;
         importFromExcel: (excelPath?: string) => Promise<DataStatus>;
+        previewExcelImport: (excelPath?: string) => Promise<ImportPreview>;
         pickExcelFile: () => Promise<string | null>;
       };
       audit: {
         integrity: () => Promise<DataIntegrityReport>;
+      };
+      dashboard: {
+        summary: () => Promise<DashboardSummary>;
+      };
+      backup: {
+        export: () => Promise<BackupResult | null>;
+        restore: () => Promise<DataStatus | null>;
       };
       sheet: {
         definitions: () => Promise<SheetDefinition[]>;
@@ -82,6 +95,8 @@ declare global {
         }) => Promise<MaintenanceInterventionItem[]>;
         upsert: (payload: MaintenanceInterventionPayload) => Promise<MaintenanceInterventionItem | null>;
         delete: (interventionId: number) => Promise<{ deleted: boolean }>;
+        pickAttachment: () => Promise<AttachmentUploadResult | null>;
+        openAttachment: (attachmentPath: string) => Promise<{ opened: boolean }>;
       };
       decision: {
         evaluate: (payload: {
@@ -98,6 +113,8 @@ declare global {
       reporting: {
         listHistory: (filters?: { sapCode?: string; search?: string; limit?: number }) => Promise<DecisionHistoryItem[]>;
         clearHistory: () => Promise<{ deleted: boolean }>;
+        exportHistoryXlsx: () => Promise<ReportExportResult | null>;
+        exportMaintenanceXlsx: () => Promise<ReportExportResult | null>;
       };
       ping: () => boolean;
     };
@@ -105,3 +122,6 @@ declare global {
 }
 
 export {};
+
+
+

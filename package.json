@@ -1,7 +1,7 @@
 {
   "name": "projet-pad",
-  "version": "0.5.0",
-  "description": "Application desktop d'aide a la maintenance routiere pour le PAD.",
+  "version": "0.6.0",
+  "description": "Application desktop d'aide à la maintenance routière pour le PAD.",
   "author": "PAD Maintenance Team",
   "private": true,
   "type": "module",
@@ -38,7 +38,7 @@
   },
   "build": {
     "appId": "cm.pad.maintenance",
-    "productName": "PAD Maintenance Routiere",
+    "productName": "PAD Maintenance Routière",
     "npmRebuild": false,
     "directories": {
       "output": "release"

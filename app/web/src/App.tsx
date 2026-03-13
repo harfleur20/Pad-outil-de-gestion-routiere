@@ -1,12 +1,35 @@
-﻿import { useCallback, useEffect, useMemo, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { padApi } from "./lib/pad-api";
-import { FolderOpen, Gauge, Pencil, RefreshCw, Settings2, Trash2, Upload } from "lucide-react";
+import {
+  BarChart3,
+  ChevronDown,
+  ChevronUp,
+  DatabaseBackup,
+  Eye,
+  ExternalLink,
+  FileSpreadsheet,
+  FolderOpen,
+  Gauge,
+  Paperclip,
+  Pencil,
+  Printer,
+  RefreshCw,
+  Settings2,
+  ShieldCheck,
+  TriangleAlert,
+  Trash2,
+  Upload,
+  X
+} from "lucide-react";
 import type {
+  DataIntegrityReport,
   DataStatus,
+  DashboardSummary,
   DecisionHistoryItem,
   DecisionResult,
   DrainageRule,
   DegradationItem,
+  ImportPreview,
   MaintenanceInterventionItem,
   MaintenanceInterventionPayload,
   MaintenanceInterventionStatus,
@@ -184,6 +207,33 @@ function formatAmount(value: number | null) {
   return `${Number(value).toLocaleString()} FCFA`;
 }
 
+function formatBytes(value: number | null | undefined) {
+  const bytes = Number(value);
+  if (!Number.isFinite(bytes) || bytes <= 0) {
+    return "-";
+  }
+  if (bytes < 1024) {
+    return `${bytes} o`;
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} Ko`;
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
+}
+
+function getFileNameFromPath(value: string) {
+  const text = String(value || "").trim();
+  if (!text) {
+    return "";
+  }
+  const parts = text.split(/[\\/]/);
+  return parts[parts.length - 1] || text;
+}
+
+function uniqueValues(values: Array<string | null | undefined>) {
+  return [...new Set(values.map((value) => String(value ?? "").trim()).filter(Boolean))];
+}
+
 function isToDetermineIntervention(value: unknown) {
   const normalized = normalizeLabel(value);
   if (!normalized) {
@@ -261,12 +311,15 @@ export default function App() {
   const appName = window.padApp?.appName || "PAD Maintenance Routière";
   const appVersion = window.padApp?.appVersion || "0.0.0";
   const [status, setStatus] = useState<DataStatus | null>(null);
+  const [integrityReport, setIntegrityReport] = useState<DataIntegrityReport | null>(null);
+  const [dashboardSummary, setDashboardSummary] = useState<DashboardSummary | null>(null);
   const [definitions, setDefinitions] = useState<SheetDefinition[]>([]);
-  const [activeView, setActiveView] = useState<string>("decision");
+  const [activeView, setActiveView] = useState<string>("dashboard");
 
   const [rows, setRows] = useState<SheetRow[]>([]);
   const [search, setSearch] = useState("");
   const [importPath, setImportPath] = useState(DEFAULT_IMPORT_PATH);
+  const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
   const [draftCells, setDraftCells] = useState<Partial<Record<SheetColumnKey, string>>>({});
   const [editingRowId, setEditingRowId] = useState<number | null>(null);
 
@@ -304,12 +357,16 @@ export default function App() {
   const [maintenanceDeflectionAfter, setMaintenanceDeflectionAfter] = useState("");
   const [maintenanceSolutionApplied, setMaintenanceSolutionApplied] = useState("");
   const [maintenanceContractorName, setMaintenanceContractorName] = useState("");
+  const [maintenanceResponsibleName, setMaintenanceResponsibleName] = useState("");
+  const [maintenanceAttachmentPath, setMaintenanceAttachmentPath] = useState("");
   const [maintenanceObservation, setMaintenanceObservation] = useState("");
   const [maintenanceCostAmount, setMaintenanceCostAmount] = useState("");
   const [feuil4Snapshot, setFeuil4Snapshot] = useState<Feuil4Snapshot | null>(null);
   const [solutionTemplates, setSolutionTemplates] = useState<MaintenanceSolutionTemplate[]>([]);
   const [selectedTemplateKey, setSelectedTemplateKey] = useState("");
   const [solutionDraft, setSolutionDraft] = useState("");
+  const [shouldScrollToDegradationEditor, setShouldScrollToDegradationEditor] = useState(false);
+  const [isDegradationEditorHighlighted, setIsDegradationEditorHighlighted] = useState(false);
   const [drainageRules, setDrainageRules] = useState<DrainageRule[]>([]);
   const [editingDrainageRuleId, setEditingDrainageRuleId] = useState<number | null>(null);
   const [drainageRuleOrder, setDrainageRuleOrder] = useState("");
@@ -326,10 +383,20 @@ export default function App() {
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const [isMaintenanceLoading, setIsMaintenanceLoading] = useState(false);
   const [isMaintenanceBusy, setIsMaintenanceBusy] = useState(false);
+  const [isPreviewingImport, setIsPreviewingImport] = useState(false);
+  const [isBackupBusy, setIsBackupBusy] = useState(false);
+  const [isReportingBusy, setIsReportingBusy] = useState(false);
   const [isSolutionBusy, setIsSolutionBusy] = useState(false);
   const [isDrainageRuleBusy, setIsDrainageRuleBusy] = useState(false);
+  const [isAttachmentBusy, setIsAttachmentBusy] = useState(false);
+  const supportsMaintenanceAttachments =
+    typeof window.padApp?.maintenance?.pickAttachment === "function" &&
+    typeof window.padApp?.maintenance?.openAttachment === "function";
+  const [isImportAssistantCollapsed, setIsImportAssistantCollapsed] = useState(false);
+  const [isIntegrityAlertDismissed, setIsIntegrityAlertDismissed] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const degradationEditorRef = useRef<HTMLDivElement | null>(null);
 
   const activeSheetName = activeView.startsWith("sheet:") ? activeView.replace("sheet:", "") : "";
   const activeSheet = useMemo(
@@ -402,6 +469,16 @@ export default function App() {
     }
   }, []);
 
+  const loadIntegrityReport = useCallback(async () => {
+    const report = await padApi.getDataIntegrityReport();
+    setIntegrityReport(report);
+  }, []);
+
+  const loadDashboardSummary = useCallback(async () => {
+    const summary = await padApi.getDashboardSummary();
+    setDashboardSummary(summary);
+  }, []);
+
   const refreshDecisionCatalogs = useCallback(async () => {
     const [sectors, degradationCatalog] = await Promise.all([padApi.listSapSectors(), padApi.listDegradations()]);
     setSapSectors(sectors);
@@ -424,6 +501,7 @@ export default function App() {
   const loadRows = useCallback(async () => {
     if (
       !activeSheetName ||
+      activeView === "dashboard" ||
       activeView === "decision" ||
       activeView === "catalogue" ||
       activeView === "degradations" ||
@@ -541,6 +619,8 @@ export default function App() {
     setMaintenanceDeflectionAfter("");
     setMaintenanceSolutionApplied("");
     setMaintenanceContractorName("");
+    setMaintenanceResponsibleName("");
+    setMaintenanceAttachmentPath("");
     setMaintenanceObservation("");
     setMaintenanceCostAmount("");
   }, []);
@@ -558,6 +638,8 @@ export default function App() {
         const [sheetDefinitions] = await Promise.all([
           padApi.listSheetDefinitions(),
           refreshStatus(),
+          loadIntegrityReport(),
+          loadDashboardSummary(),
           refreshDecisionCatalogs(),
           loadAllRoads(),
           loadRoads(),
@@ -592,10 +674,12 @@ export default function App() {
     };
   }, [
     hasElectronBridge,
+    loadDashboardSummary,
     loadAllRoads,
     loadDrainageRules,
     loadFeuil4Snapshot,
     loadHistory,
+    loadIntegrityReport,
     loadMaintenanceRows,
     loadRoads,
     loadSolutionTemplates,
@@ -653,7 +737,35 @@ export default function App() {
   }, [selectedDegradation]);
 
   useEffect(() => {
+    if (!shouldScrollToDegradationEditor || !selectedDegradation || !degradationEditorRef.current) {
+      return;
+    }
+
+    let timeoutId = 0;
+    const rafId = window.requestAnimationFrame(() => {
+      degradationEditorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      setIsDegradationEditorHighlighted(true);
+      setShouldScrollToDegradationEditor(false);
+      timeoutId = window.setTimeout(() => setIsDegradationEditorHighlighted(false), 1800);
+    });
+
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      if (timeoutId) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, [selectedDegradation, shouldScrollToDegradationEditor]);
+
+  useEffect(() => {
+    if (dashboardSummary?.integrity?.status !== "OK") {
+      setIsIntegrityAlertDismissed(false);
+    }
+  }, [dashboardSummary?.integrity?.status]);
+
+  useEffect(() => {
     if (
+      activeView === "dashboard" ||
       activeView === "decision" ||
       activeView === "catalogue" ||
       activeView === "degradations" ||
@@ -668,6 +780,7 @@ export default function App() {
   useEffect(() => {
     if (
       !hasElectronBridge ||
+      activeView === "dashboard" ||
       activeView === "decision" ||
       activeView === "catalogue" ||
       activeView === "degradations" ||
@@ -685,6 +798,8 @@ export default function App() {
       const nextStatus = await padApi.importFromExcel(importPath.trim() || undefined);
       setStatus(nextStatus);
       await Promise.all([
+        loadIntegrityReport(),
+        loadDashboardSummary(),
         refreshDecisionCatalogs(),
         loadAllRoads(),
         loadRoads(),
@@ -717,11 +832,113 @@ export default function App() {
     }
   }
 
+  async function handlePreviewImport() {
+    setIsPreviewingImport(true);
+    try {
+      const preview = await padApi.previewExcelImport(importPath.trim() || undefined);
+      setImportPreview(preview);
+      setError("");
+      setNotice("Aperçu d'import généré.");
+      setActiveView("dashboard");
+    } catch (err) {
+      setImportPreview(null);
+      setError(toErrorMessage(err));
+    } finally {
+      setIsPreviewingImport(false);
+    }
+  }
+
+  async function handleExportBackup() {
+    setIsBackupBusy(true);
+    try {
+      const result = await padApi.exportBackup();
+      if (result?.filePath) {
+        setNotice(`Sauvegarde exportée: ${result.filePath}`);
+      }
+      setError("");
+    } catch (err) {
+      setError(toErrorMessage(err));
+    } finally {
+      setIsBackupBusy(false);
+    }
+  }
+
+  async function handleRestoreBackup() {
+    if (!window.confirm("Restaurer une sauvegarde remplacera les données locales actuelles. Continuer ?")) {
+      return;
+    }
+
+    setIsBackupBusy(true);
+    try {
+      const result = await padApi.restoreBackup();
+      if (result) {
+        setStatus(result);
+        await Promise.all([
+          loadIntegrityReport(),
+          loadDashboardSummary(),
+          refreshDecisionCatalogs(),
+          loadAllRoads(),
+          loadRoads(),
+          loadHistory(),
+          loadMaintenanceRows(),
+          loadFeuil4Snapshot(),
+          loadSolutionTemplates(),
+          loadDrainageRules()
+        ]);
+        if (activeView.startsWith("sheet:")) {
+          await loadRows();
+        }
+        setNotice("Sauvegarde restaurée.");
+        setError("");
+      }
+    } catch (err) {
+      setError(toErrorMessage(err));
+    } finally {
+      setIsBackupBusy(false);
+    }
+  }
+
+  async function handleExportHistoryXlsx() {
+    setIsReportingBusy(true);
+    try {
+      const result = await padApi.exportDecisionHistoryXlsx();
+      if (result?.filePath) {
+        setNotice(`Historique exporté: ${result.filePath}`);
+      }
+      setError("");
+    } catch (err) {
+      setError(toErrorMessage(err));
+    } finally {
+      setIsReportingBusy(false);
+    }
+  }
+
+  async function handleExportMaintenanceXlsx() {
+    setIsReportingBusy(true);
+    try {
+      const result = await padApi.exportMaintenanceHistoryXlsx();
+      if (result?.filePath) {
+        setNotice(`Entretiens exportés: ${result.filePath}`);
+      }
+      setError("");
+    } catch (err) {
+      setError(toErrorMessage(err));
+    } finally {
+      setIsReportingBusy(false);
+    }
+  }
+
+  function handlePrintDecision() {
+    window.print();
+  }
+
   async function handleRefresh() {
     setIsBusy(true);
     try {
       await Promise.all([
         refreshStatus(),
+        loadIntegrityReport(),
+        loadDashboardSummary(),
         refreshDecisionCatalogs(),
         loadAllRoads(),
         loadRoads(),
@@ -765,7 +982,7 @@ export default function App() {
     try {
       const result = await padApi.evaluateDecision(payload);
       setDecisionResult(result);
-      await Promise.all([refreshStatus(), loadHistory()]);
+      await Promise.all([refreshStatus(), loadHistory(), loadDashboardSummary()]);
       setError("");
       setNotice("Décision calculée et enregistrée dans l'historique.");
     } catch (err) {
@@ -787,7 +1004,7 @@ export default function App() {
 
     setEditingRowId(row.id);
     setDraftCells(nextCells);
-    setNotice(`Edition de la ligne ${getDisplayRowNumber(row)}.`);
+    setNotice(`Édition de la ligne ${getDisplayRowNumber(row)}.`);
     setError("");
   }
 
@@ -805,10 +1022,10 @@ export default function App() {
         setNotice(`Ligne ${currentRow ? getDisplayRowNumber(currentRow) : editingRowId} mise à jour.`);
       } else {
         await padApi.createSheetRow(activeSheet.name, payload);
-        setNotice("Nouvelle ligne ajoutee.");
+        setNotice("Nouvelle ligne ajoutée.");
       }
 
-      await Promise.all([refreshStatus(), loadRows()]);
+      await Promise.all([refreshStatus(), loadRows(), loadDashboardSummary(), loadIntegrityReport()]);
       if (activeSheet.name === "Feuil4") {
         await loadFeuil4Snapshot();
       }
@@ -839,7 +1056,7 @@ export default function App() {
     try {
       const row = rows.find((item) => item.id === id);
       await padApi.deleteSheetRow(activeSheet.name, id);
-      await Promise.all([refreshStatus(), loadRows()]);
+      await Promise.all([refreshStatus(), loadRows(), loadDashboardSummary(), loadIntegrityReport()]);
       if (activeSheet.name === "Feuil4") {
         await loadFeuil4Snapshot();
       }
@@ -863,7 +1080,7 @@ export default function App() {
     setIsBusy(true);
     try {
       await padApi.clearDecisionHistory();
-      await Promise.all([refreshStatus(), loadHistory()]);
+      await Promise.all([refreshStatus(), loadHistory(), loadDashboardSummary(), loadIntegrityReport()]);
       setNotice("Historique vidé.");
       setError("");
     } catch (err) {
@@ -973,7 +1190,7 @@ export default function App() {
       return;
     }
     if (drainageRuleOperator !== "ALWAYS" && !drainageRulePattern.trim()) {
-      setError("Le pattern est obligatoire sauf pour l'operateur ALWAYS.");
+      setError("Le pattern est obligatoire sauf pour l'opérateur ALWAYS.");
       return;
     }
 
@@ -1045,6 +1262,8 @@ export default function App() {
     );
     setMaintenanceSolutionApplied(intervention.solutionApplied || "");
     setMaintenanceContractorName(intervention.contractorName || "");
+    setMaintenanceResponsibleName(intervention.responsibleName || "");
+    setMaintenanceAttachmentPath(intervention.attachmentPath || "");
     setMaintenanceObservation(intervention.observation || "");
     setMaintenanceCostAmount(intervention.costAmount != null ? String(intervention.costAmount) : "");
     setError("");
@@ -1082,6 +1301,8 @@ export default function App() {
         maintenanceDeflectionAfter.trim() !== "" ? Number(maintenanceDeflectionAfter) : undefined,
       solutionApplied: maintenanceSolutionApplied.trim() || undefined,
       contractorName: maintenanceContractorName.trim() || undefined,
+      responsibleName: maintenanceResponsibleName.trim() || undefined,
+      attachmentPath: maintenanceAttachmentPath.trim() || undefined,
       observation: maintenanceObservation.trim() || undefined,
       costAmount: maintenanceCostAmount.trim() !== "" ? Number(maintenanceCostAmount) : undefined
     };
@@ -1092,7 +1313,8 @@ export default function App() {
       await Promise.all([
         loadMaintenanceRows(),
         loadMaintenancePreview(selectedRoadId),
-        refreshStatus()
+        refreshStatus(),
+        loadDashboardSummary()
       ]);
       resetMaintenanceForm();
       setError("");
@@ -1120,7 +1342,8 @@ export default function App() {
       await Promise.all([
         loadMaintenanceRows(),
         loadMaintenancePreview(selectedRoadId),
-        refreshStatus()
+        refreshStatus(),
+        loadDashboardSummary()
       ]);
       if (editingMaintenanceId === id) {
         resetMaintenanceForm();
@@ -1131,6 +1354,37 @@ export default function App() {
       setError(toErrorMessage(err));
     } finally {
       setIsMaintenanceBusy(false);
+    }
+  }
+
+  async function handlePickMaintenanceAttachment() {
+    setIsAttachmentBusy(true);
+    try {
+      const result = await padApi.pickMaintenanceAttachment();
+      if (result) {
+        setMaintenanceAttachmentPath(result.storedPath);
+        setError("");
+        setNotice(`Pièce jointe ajoutée: ${result.fileName} (${formatBytes(result.size)})`);
+      }
+    } catch (err) {
+      setError(toErrorMessage(err));
+    } finally {
+      setIsAttachmentBusy(false);
+    }
+  }
+
+  async function handleOpenMaintenanceAttachment(targetPath?: string) {
+    const filePath = String(targetPath || maintenanceAttachmentPath || "").trim();
+    if (!filePath) {
+      setError("Aucune pièce jointe à ouvrir.");
+      return;
+    }
+
+    try {
+      await padApi.openMaintenanceAttachment(filePath);
+      setError("");
+    } catch (err) {
+      setError(toErrorMessage(err));
     }
   }
 
@@ -1193,7 +1447,345 @@ export default function App() {
     anchor.click();
     document.body.removeChild(anchor);
     URL.revokeObjectURL(url);
-    setNotice("Export CSV genere.");
+    setNotice("Export CSV généré.");
+  }
+
+  function getSheetFieldSuggestions(sheetName: string | undefined, column: SheetColumnKey) {
+    const sapCodes = uniqueValues(sapSectors.map((item) => item.code));
+    const roadCodes = uniqueValues(allRoads.map((item) => item.roadCode));
+    const roadDesignations = uniqueValues(allRoads.map((item) => item.designation));
+    const surfaceTypes = uniqueValues([...allRoads.map((item) => item.surfaceType), "BB", "Mixte", "BB/Pavés", "Pavés"]);
+    const pavementStates = uniqueValues([...allRoads.map((item) => item.pavementState), "Bon", "Moy", "Mau", "Mauvais"]);
+    const drainageTypes = uniqueValues([...allRoads.map((item) => item.drainageType), "E,F", "C", "-"]);
+    const drainageStates = uniqueValues([
+      ...allRoads.map((item) => item.drainageState),
+      "Bon",
+      "Moy",
+      "Mau",
+      "Obstrué",
+      "-"
+    ]);
+    const interventionHints = uniqueValues([
+      ...allRoads.map((item) => item.interventionHint),
+      "À déterminer (A D)",
+      ...MAINTENANCE_TYPE_SUGGESTIONS
+    ]);
+
+    if (sheetName === "Feuil2") {
+      if (column === "C") return roadCodes;
+      if (column === "D") return roadDesignations;
+      if (column === "H" || column === "I") return sapCodes;
+    }
+
+    if (sheetName === "Feuil3") {
+      if (column === "A") return roadCodes;
+      if (column === "B") return roadDesignations;
+      if (column === "G") return surfaceTypes;
+      if (column === "H") return pavementStates;
+      if (column === "I") return drainageTypes;
+      if (column === "J") return drainageStates;
+      if (column === "L") return interventionHints;
+    }
+
+    if (sheetName === "Feuil5") {
+      if (column === "C") return roadCodes;
+      if (column === "D") return roadDesignations;
+      if (column === "I") return surfaceTypes;
+      if (column === "J") return pavementStates;
+      if (column === "K") return drainageTypes;
+      if (column === "L") return drainageStates;
+    }
+
+    if (sheetName === "Feuil6") {
+      if (column === "B") return ["Rue", "Boulevard", "Avenue"];
+      if (column === "C") return roadCodes;
+      if (column === "E") return roadDesignations;
+      if (column === "F") return uniqueValues(allRoads.map((item) => `${item.startLabel} à ${item.endLabel}`));
+    }
+
+    if (sheetName === "Feuil7" && column === "C") {
+      return uniqueValues(degradations.map((item) => item.name));
+    }
+
+    return [];
+  }
+
+  function renderDashboardView() {
+    const summary = dashboardSummary;
+    const integrity = summary?.integrity || integrityReport;
+
+    return (
+      <main className="workspace workspace--full">
+        <section className="panel table-panel table-panel--full">
+          <h2>Pilotage & données</h2>
+          <p className="muted">
+            Tableau de bord décideur, assistant d’import, contrôle de cohérence et protection des données.
+          </p>
+
+          <div className="kpi-grid">
+            <div className="kpi-card">
+              <span className="kpi-card__label">Voies</span>
+              <strong>{summary?.totals.roads ?? "-"}</strong>
+            </div>
+            <div className="kpi-card">
+              <span className="kpi-card__label">Dégradations</span>
+              <strong>{summary?.totals.degradations ?? "-"}</strong>
+            </div>
+            <div className="kpi-card">
+              <span className="kpi-card__label">Entretiens en cours</span>
+              <strong>{summary?.totals.pendingMaintenance ?? 0}</strong>
+            </div>
+            <div className="kpi-card">
+              <span className="kpi-card__label">Entretiens terminés</span>
+              <strong>{summary?.totals.completedMaintenance ?? 0}</strong>
+            </div>
+            <div className="kpi-card">
+              <span className="kpi-card__label">Budget déclaré</span>
+              <strong>{formatAmount(summary?.totals.estimatedBudget ?? null)}</strong>
+            </div>
+            <div className="kpi-card">
+              <span className="kpi-card__label">Assainissement urgent</span>
+              <strong>{summary?.totals.urgentDrainage ?? 0}</strong>
+            </div>
+          </div>
+
+          <div className="dashboard-grid">
+            <div className="card card--spaced card--full">
+              <div className="dashboard-card__header">
+                <div>
+                  <h3>Assistant d’import Excel</h3>
+                  <p className="muted">Prévisualise le fichier, contrôle les feuilles et estime le contenu avant import.</p>
+                </div>
+                <div className="row-buttons">
+                  <button
+                    className="row-action row-action--with-icon row-action--preview"
+                    type="button"
+                    onClick={handlePreviewImport}
+                    disabled={isPreviewingImport || isBusy}
+                  >
+                    <Eye size={15} aria-hidden="true" />
+                    <span>{isPreviewingImport ? "Analyse..." : "Prévisualiser"}</span>
+                  </button>
+                  <button className="primary icon-btn" type="button" onClick={handleImport} disabled={isBusy}>
+                    <Upload size={16} aria-hidden="true" />
+                    <span>Importer</span>
+                  </button>
+                  <button
+                    className="row-action row-action--with-icon"
+                    type="button"
+                    onClick={() => setIsImportAssistantCollapsed((current) => !current)}
+                  >
+                    {isImportAssistantCollapsed ? <ChevronDown size={15} aria-hidden="true" /> : <ChevronUp size={15} aria-hidden="true" />}
+                    <span>{isImportAssistantCollapsed ? "Déplier" : "Rétracter"}</span>
+                  </button>
+                </div>
+              </div>
+
+              {isImportAssistantCollapsed ? (
+                <p className="muted">Bloc replié. Déplie-le pour afficher l’aperçu du fichier et les contrôles détaillés.</p>
+              ) : importPreview ? (
+                <>
+                  <div className="dashboard-meta">
+                    <span className={`status-pill ${importPreview.ready ? "status-pill--ok" : "status-pill--warning"}`}>
+                      {importPreview.ready ? "Prêt à importer" : "Import à vérifier"}
+                    </span>
+                    <span>{importPreview.totals.rows} ligne(s) détectée(s)</span>
+                    <span>{importPreview.totals.roads} voie(s) estimée(s)</span>
+                    <span>{importPreview.totals.degradations} dégradation(s) estimée(s)</span>
+                  </div>
+
+                  <div className="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Feuille</th>
+                          <th>Présente</th>
+                          <th>Lignes utiles</th>
+                          <th>Colonnes attendues</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {importPreview.sheetPreviews.map((sheet) => (
+                          <tr key={sheet.name}>
+                            <td>
+                              <strong>{sheet.name}</strong>
+                              <div className="muted">{sheet.title}</div>
+                            </td>
+                            <td>{sheet.present ? "Oui" : "Non"}</td>
+                            <td>{sheet.rowCount}</td>
+                            <td>{sheet.expectedColumns}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {importPreview.warnings.length > 0 ? (
+                    <ul className="issue-list">
+                      {importPreview.warnings.map((warning) => (
+                        <li key={warning}>{warning}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="muted">Aucune alerte structurelle détectée sur le fichier prévisualisé.</p>
+                  )}
+                </>
+              ) : (
+                <p className="muted">Aucun aperçu chargé. Utilise “Prévisualiser” pour auditer un fichier Excel avant import.</p>
+              )}
+            </div>
+
+            <div className="card card--spaced">
+              <div className="dashboard-card__header">
+                <h3>Recette & cohérence</h3>
+                <ShieldCheck size={18} aria-hidden="true" />
+              </div>
+              <p className="muted">
+                {integrity?.status === "OK"
+                  ? "La base est cohérente sur les contrôles actuellement implémentés."
+                  : "Des points de cohérence métier restent à vérifier."}
+              </p>
+              {integrity?.issues?.length ? (
+                <ul className="issue-list">
+                  {integrity.issues.map((issue) => (
+                    <li key={issue.code}>
+                      <strong>{issue.level}</strong> · {issue.message} ({issue.count})
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="muted">Aucune incohérence détectée.</p>
+              )}
+            </div>
+
+            <div className="card card--spaced">
+              <div className="dashboard-card__header">
+                <h3>Protection des données</h3>
+                <DatabaseBackup size={18} aria-hidden="true" />
+              </div>
+              <p className="muted">Sauvegarde JSON et restauration rapide de la base locale.</p>
+              <div className="editor-actions">
+                <button
+                  className="row-action row-action--with-icon row-action--save"
+                  type="button"
+                  onClick={handleExportBackup}
+                  disabled={isBackupBusy}
+                >
+                  <DatabaseBackup size={15} aria-hidden="true" />
+                  <span>Sauvegarder</span>
+                </button>
+                <button
+                  className="row-action row-action--with-icon row-action--restore"
+                  type="button"
+                  onClick={handleRestoreBackup}
+                  disabled={isBackupBusy}
+                >
+                  <FolderOpen size={15} aria-hidden="true" />
+                  <span>Restaurer</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="card card--spaced">
+              <div className="dashboard-card__header">
+                <h3>Entretiens par statut</h3>
+                <RefreshCw size={18} aria-hidden="true" />
+              </div>
+              <ul className="count-list">
+                {(summary?.maintenanceByStatus ?? []).map((item) => (
+                  <li key={item.label}>
+                    <span>{toMaintenanceStatusLabel(item.label)}</span>
+                    <strong>{item.count}</strong>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="card card--spaced">
+              <div className="dashboard-card__header">
+                <h3>Réseau par SAP</h3>
+                <BarChart3 size={18} aria-hidden="true" />
+              </div>
+              <ul className="count-list">
+                {(summary?.roadsBySap ?? []).map((item) => (
+                  <li key={item.label}>
+                    <span>{item.label}</span>
+                    <strong>{item.count}</strong>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="card card--spaced">
+              <div className="dashboard-card__header">
+                <h3>État de la chaussée</h3>
+                <Gauge size={18} aria-hidden="true" />
+              </div>
+              <ul className="count-list">
+                {(summary?.roadsByState ?? []).map((item) => (
+                  <li key={item.label}>
+                    <span>{item.label}</span>
+                    <strong>{item.count}</strong>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="card card--spaced">
+              <div className="dashboard-card__header">
+                <h3>Dégradations les plus fréquentes</h3>
+                <BarChart3 size={18} aria-hidden="true" />
+              </div>
+              <ul className="count-list">
+                {(summary?.topDegradations ?? []).map((item) => (
+                  <li key={item.label}>
+                    <span>{item.label}</span>
+                    <strong>{item.count}</strong>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="card card--spaced card--full">
+              <div className="dashboard-card__header">
+                <h3>Suivi récent</h3>
+                <FileSpreadsheet size={18} aria-hidden="true" />
+              </div>
+              {(summary?.recentMaintenance ?? []).length > 0 ? (
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Voie</th>
+                        <th>Type</th>
+                        <th>Statut</th>
+                        <th>Coût</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {summary?.recentMaintenance.map((item) => (
+                        <tr key={item.id}>
+                          <td>{item.interventionDate}</td>
+                          <td>
+                            {item.roadCode} - {item.roadDesignation}
+                          </td>
+                          <td>{item.interventionType}</td>
+                          <td>{toMaintenanceStatusLabel(item.status)}</td>
+                          <td>{formatAmount(item.costAmount)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="muted">Aucun entretien récent enregistré.</p>
+              )}
+            </div>
+          </div>
+        </section>
+      </main>
+    );
   }
 
   function renderDecisionView() {
@@ -1218,7 +1810,7 @@ export default function App() {
             id="road-search"
             value={roadSearch}
             onChange={(event) => setRoadSearch(event.target.value)}
-            placeholder="Code ou designation"
+            placeholder="Code ou désignation"
           />
 
           <label htmlFor="road">Voie</label>
@@ -1360,81 +1952,112 @@ export default function App() {
         </section>
 
         <section className="panel decision-output">
-          <h2>Résultat automatique</h2>
+          <div className="dashboard-card__header">
+            <div>
+              <h2>Résultat automatique</h2>
+              <p className="muted">Analyse calculée à partir de la voie, de la dégradation, de la déflexion et des règles métier.</p>
+            </div>
+            <button
+              className="row-action row-action--with-icon row-action--nowrap row-action--compact row-action--print"
+              type="button"
+              onClick={handlePrintDecision}
+              disabled={!decisionResult}
+            >
+              <Printer size={15} aria-hidden="true" />
+              <span>Imprimer la fiche</span>
+            </button>
+          </div>
           {!decisionResult ? <p className="muted">Lance une analyse pour afficher la recommandation.</p> : null}
 
           {decisionResult ? (
-            <div className="decision-grid">
-              <div className="card">
-                <h3>Voie sélectionnée</h3>
-                <p>
-                  <strong>{decisionResult.road.designation}</strong> ({decisionResult.road.roadCode})
-                </p>
-                <p>{decisionResult.road.sapCode}</p>
-                <p>
-                  {decisionResult.road.startLabel}
-                  {" -> "}
-                  {decisionResult.road.endLabel}
-                </p>
+            <>
+              <div className="print-sheet-header">
+                <div className="print-sheet-header__brand">
+                  <img className="print-sheet-header__logo" src="/logo-pad.png" alt="Logo Port Autonome de Douala" />
+                  <div>
+                    <strong>{appName}</strong>
+                    <div>Fiche d'aide à la décision de maintenance routière</div>
+                  </div>
+                </div>
               </div>
 
-              <div className="card">
-                <h3>Dégradation</h3>
-                <p>{decisionResult.degradation.name}</p>
-                <p>
-                  <strong>Cause probable:</strong> {decisionResult.probableCause}
-                </p>
+              <div className="decision-grid">
+                <div className="card">
+                  <h3>Voie sélectionnée</h3>
+                  <p>
+                    <strong>{decisionResult.road.designation}</strong> ({decisionResult.road.roadCode})
+                  </p>
+                  <p>{decisionResult.road.sapCode}</p>
+                  <p>
+                    {decisionResult.road.startLabel}
+                    {" -> "}
+                    {decisionResult.road.endLabel}
+                  </p>
+                </div>
+
+                <div className="card">
+                  <h3>Dégradation</h3>
+                  <p>{decisionResult.degradation.name}</p>
+                  <p>
+                    <strong>Cause probable:</strong> {decisionResult.probableCause}
+                  </p>
+                </div>
+
+                <div className="card">
+                  <h3>Déflexion</h3>
+                  <p>
+                    <strong>D:</strong> {decisionResult.deflection.value ?? "non renseigné"}
+                  </p>
+                  <p>
+                    <strong>État:</strong> {toDeflectionSeverityLabel(decisionResult.deflection.severity)}
+                  </p>
+                  <p>
+                    <strong>Intervention:</strong> {toDeflectionRecommendationLabel(decisionResult.deflection.recommendation)}
+                  </p>
+                </div>
+
+                <div
+                  className={`card card--full ${
+                    decisionResult.degradation.solutionSource === "MISSING" ? "card--solution-missing" : ""
+                  }`}
+                >
+                  <h3>Solution maintenance</h3>
+                  <p>{decisionResult.maintenanceSolution}</p>
+                </div>
+
+                <div className="card card--full">
+                  <h3>Assainissement</h3>
+                  <p>{decisionResult.drainage.recommendation}</p>
+                </div>
+
+                <div
+                  className={`card card--full ${
+                    isToDetermineIntervention(decisionResult.contextualIntervention) ? "card--warning" : ""
+                  }`}
+                >
+                  <h3>Intervention contextuelle tronçon</h3>
+                  <p>{decisionResult.contextualIntervention || "à déterminer (A D)"}</p>
+                </div>
+
+                <div className="card card--full">
+                  <h3>Causes connues (catalogue)</h3>
+                  <ul>
+                    {decisionResult.degradation.causes.length > 0 ? (
+                      decisionResult.degradation.causes.map((cause, index) => (
+                        <li key={`${decisionResult.degradation.id}-${index}`}>{cause}</li>
+                      ))
+                    ) : (
+                      <li>Aucune cause détaillée en base pour cette dégradation.</li>
+                    )}
+                  </ul>
+                </div>
               </div>
 
-              <div className="card">
-                <h3>Déflexion</h3>
-                <p>
-                  <strong>D:</strong> {decisionResult.deflection.value ?? "non renseigné"}
-                </p>
-                <p>
-                  <strong>État:</strong> {toDeflectionSeverityLabel(decisionResult.deflection.severity)}
-                </p>
-                <p>
-                  <strong>Intervention:</strong> {toDeflectionRecommendationLabel(decisionResult.deflection.recommendation)}
-                </p>
+              <div className="print-sheet-footer">
+                <span>{appName}</span>
+                <span>Version {appVersion}</span>
               </div>
-
-              <div
-                className={`card card--full ${
-                  decisionResult.degradation.solutionSource === "MISSING" ? "card--solution-missing" : ""
-                }`}
-              >
-                <h3>Solution maintenance</h3>
-                <p>{decisionResult.maintenanceSolution}</p>
-              </div>
-
-              <div className="card card--full">
-                <h3>Assainissement</h3>
-                <p>{decisionResult.drainage.recommendation}</p>
-              </div>
-
-              <div
-                className={`card card--full ${
-                  isToDetermineIntervention(decisionResult.contextualIntervention) ? "card--warning" : ""
-                }`}
-              >
-                <h3>Intervention contextuelle tronçon</h3>
-                <p>{decisionResult.contextualIntervention || "à déterminer (A D)"}</p>
-              </div>
-
-              <div className="card card--full">
-                <h3>Causes connues (catalogue)</h3>
-                <ul>
-                  {decisionResult.degradation.causes.length > 0 ? (
-                    decisionResult.degradation.causes.map((cause, index) => (
-                      <li key={`${decisionResult.degradation.id}-${index}`}>{cause}</li>
-                    ))
-                  ) : (
-                    <li>Aucune cause détaillée en base pour cette dégradation.</li>
-                  )}
-                </ul>
-              </div>
-            </div>
+            </>
           ) : null}
         </section>
       </main>
@@ -1460,7 +2083,7 @@ export default function App() {
             <input
               value={roadSearch}
               onChange={(event) => setRoadSearch(event.target.value)}
-              placeholder="Recherche code/designation/debut/fin"
+              placeholder="Recherche code/désignation/début/fin"
             />
             <span className="muted">{roads.length} voie(s)</span>
           </div>
@@ -1472,12 +2095,12 @@ export default function App() {
                   <th>Action</th>
                   <th>SAP</th>
                   <th>Code</th>
-                  <th>Designation</th>
+                  <th>Désignation</th>
                   <th>Début</th>
                   <th>Fin</th>
                   <th>Longueur (m)</th>
                   <th>Largeur (m)</th>
-                  <th>Revetement</th>
+                  <th>Revêtement</th>
                   <th>État chaussée</th>
                   <th>Type caniveaux</th>
                   <th>Description assain.</th>
@@ -1564,6 +2187,7 @@ export default function App() {
                           type="button"
                           onClick={() => {
                             setSelectedDegradationId(item.id);
+                            setShouldScrollToDegradationEditor(true);
                           }}
                         >
                           <Settings2 size={15} aria-hidden="true" />
@@ -1598,7 +2222,10 @@ export default function App() {
           </div>
 
           {selectedDegradation ? (
-            <div className="card card--spaced">
+            <div
+              ref={degradationEditorRef}
+              className={`card card--spaced${isDegradationEditorHighlighted ? " card--highlighted" : ""}`}
+            >
               <h3>Causes détaillées: {selectedDegradation.name}</h3>
               <p>
                 <strong>Source solution:</strong> {toSolutionSourceLabel(selectedDegradation.solutionSource)}
@@ -1827,6 +2454,8 @@ export default function App() {
   }
 
   function renderMaintenanceView() {
+    const hasMaintenanceAttachment = maintenanceAttachmentPath.trim().length > 0;
+
     return (
       <main className="workspace">
         <section className="panel editor-panel">
@@ -1894,7 +2523,7 @@ export default function App() {
 
           <div className="maintenance-form-grid">
             <div className="cell-field">
-              <label htmlFor="maintenance-date">Date d'intervention</label>
+              <label htmlFor="maintenance-date">Date prévue</label>
               <input
                 id="maintenance-date"
                 type="date"
@@ -1905,7 +2534,7 @@ export default function App() {
             </div>
 
             <div className="cell-field">
-              <label htmlFor="maintenance-completion-date">Date de clôture</label>
+              <label htmlFor="maintenance-completion-date">Date réelle / clôture</label>
               <input
                 id="maintenance-completion-date"
                 type="date"
@@ -1968,6 +2597,80 @@ export default function App() {
                 placeholder="Ex: Équipe interne"
                 disabled={isMaintenanceBusy}
               />
+            </div>
+
+            <div className="cell-field">
+              <label htmlFor="maintenance-responsible">Responsable PAD</label>
+              <input
+                id="maintenance-responsible"
+                value={maintenanceResponsibleName}
+                onChange={(event) => setMaintenanceResponsibleName(event.target.value)}
+                placeholder="Ex: Chef section voirie"
+                disabled={isMaintenanceBusy}
+              />
+            </div>
+
+            <div className="cell-field">
+              <label htmlFor="maintenance-attachment">Pièce jointe / photo</label>
+              <input
+                id="maintenance-attachment"
+                value={maintenanceAttachmentPath}
+                onChange={(event) => setMaintenanceAttachmentPath(event.target.value)}
+                placeholder="Aucune pièce jointe sélectionnée"
+                disabled={isMaintenanceBusy || isAttachmentBusy}
+                readOnly
+              />
+              <div className="row-buttons row-buttons--compact">
+                <button
+                  className="row-action row-action--with-icon row-action--compact"
+                  type="button"
+                  onClick={handlePickMaintenanceAttachment}
+                  disabled={isMaintenanceBusy || isAttachmentBusy || !supportsMaintenanceAttachments}
+                  title={
+                    supportsMaintenanceAttachments
+                      ? "Joindre un fichier"
+                      : "Redémarre l'application Electron pour activer les pièces jointes"
+                  }
+                >
+                  <Paperclip size={15} aria-hidden="true" />
+                  <span>{isAttachmentBusy ? "Ajout..." : "Joindre"}</span>
+                </button>
+                <button
+                  className="row-action row-action--with-icon row-action--restore row-action--compact"
+                  type="button"
+                  onClick={() => handleOpenMaintenanceAttachment()}
+                  disabled={
+                    isMaintenanceBusy || isAttachmentBusy || !supportsMaintenanceAttachments || !hasMaintenanceAttachment
+                  }
+                  title={
+                    !supportsMaintenanceAttachments
+                      ? "Redémarre l'application Electron pour activer les pièces jointes"
+                      : hasMaintenanceAttachment
+                        ? "Ouvrir la pièce jointe"
+                        : "Aucune pièce jointe disponible"
+                  }
+                >
+                  <ExternalLink size={15} aria-hidden="true" />
+                  <span>Ouvrir</span>
+                </button>
+                <button
+                  className="row-action row-action--danger row-action--icon row-action--icon-sm"
+                  type="button"
+                  onClick={() => setMaintenanceAttachmentPath("")}
+                  title="Retirer la pièce jointe"
+                  aria-label="Retirer la pièce jointe"
+                  disabled={
+                    isMaintenanceBusy || isAttachmentBusy || !supportsMaintenanceAttachments || !hasMaintenanceAttachment
+                  }
+                >
+                  <X size={15} aria-hidden="true" />
+                </button>
+              </div>
+              <p className="field-help field-help--compact">
+                {supportsMaintenanceAttachments
+                  ? "Formats acceptés: PNG, JPEG, WEBP, PDF, DOC, DOCX, XLS, XLSX, TXT. Taille maximale: 2 Mo."
+                  : "Pièces jointes indisponibles dans cette session. Ferme puis relance l'application Electron."}
+              </p>
             </div>
 
             <div className="cell-field">
@@ -2042,7 +2745,7 @@ export default function App() {
           <h2>Historique des entretiens</h2>
           <p className="muted">Suivi chronologique des interventions prévues, en cours et terminées.</p>
 
-          <div className="table-toolbar table-toolbar--penta">
+          <div className="table-toolbar table-toolbar--hexa">
             <select value={maintenanceSap} onChange={(event) => setMaintenanceSap(event.target.value)}>
               <option value="">Tous les secteurs</option>
               {sapSectors.map((sector) => (
@@ -2089,6 +2792,15 @@ export default function App() {
               <RefreshCw size={15} aria-hidden="true" />
               <span>Actualiser</span>
             </button>
+            <button
+              className="row-action row-action--with-icon"
+              type="button"
+              onClick={handleExportMaintenanceXlsx}
+              disabled={isReportingBusy}
+            >
+              <FileSpreadsheet size={15} aria-hidden="true" />
+              <span>Export XLSX</span>
+            </button>
           </div>
 
           <div className="table-wrap">
@@ -2106,6 +2818,8 @@ export default function App() {
                   <th>État après</th>
                   <th>Solution appliquée</th>
                   <th>Prestataire</th>
+                  <th>Responsable</th>
+                  <th>Pièce jointe</th>
                   <th>Coût</th>
                 </tr>
               </thead>
@@ -2150,12 +2864,28 @@ export default function App() {
                     <td>{item.stateAfter || "-"}</td>
                     <td>{item.solutionApplied || "-"}</td>
                     <td>{item.contractorName || "-"}</td>
+                    <td>{item.responsibleName || "-"}</td>
+                    <td>
+                      {item.attachmentPath ? (
+                        <button
+                          className="row-action row-action--with-icon row-action--restore"
+                          type="button"
+                          onClick={() => handleOpenMaintenanceAttachment(item.attachmentPath)}
+                          title={item.attachmentPath}
+                        >
+                          <ExternalLink size={14} aria-hidden="true" />
+                          <span>{getFileNameFromPath(item.attachmentPath)}</span>
+                        </button>
+                      ) : (
+                        "-"
+                      )}
+                    </td>
                     <td>{formatAmount(item.costAmount)}</td>
                   </tr>
                 ))}
                 {maintenanceRows.length === 0 ? (
                   <tr>
-                    <td colSpan={12}>{isMaintenanceLoading ? "Chargement..." : "Aucun entretien enregistré."}</td>
+                    <td colSpan={14}>{isMaintenanceLoading ? "Chargement..." : "Aucun entretien enregistré."}</td>
                   </tr>
                 ) : null}
               </tbody>
@@ -2171,9 +2901,9 @@ export default function App() {
       <main className="workspace workspace--full">
         <section className="panel table-panel table-panel--full">
           <h2>Historique et reporting</h2>
-          <p className="muted">Historique des décisions calculées avec export CSV.</p>
+          <p className="muted">Historique des décisions calculées avec exports CSV et Excel.</p>
 
-          <div className="table-toolbar table-toolbar--penta">
+          <div className="table-toolbar table-toolbar--hexa">
             <select value={historySap} onChange={(event) => setHistorySap(event.target.value)}>
               <option value="">Tous les secteurs</option>
               {sapSectors.map((sector) => (
@@ -2187,11 +2917,27 @@ export default function App() {
               onChange={(event) => setHistorySearch(event.target.value)}
               placeholder="Recherche voie/dégradation/cause"
             />
-            <button className="row-action" type="button" onClick={() => loadHistory()} disabled={isHistoryLoading}>
-              Actualiser
+            <button
+              className="row-action row-action--with-icon"
+              type="button"
+              onClick={() => loadHistory()}
+              disabled={isHistoryLoading}
+            >
+              <RefreshCw size={15} aria-hidden="true" />
+              <span>Actualiser</span>
             </button>
-            <button className="primary" type="button" onClick={exportHistoryCsv}>
-              Export CSV
+            <button className="primary row-action--with-icon" type="button" onClick={exportHistoryCsv}>
+              <FileSpreadsheet size={15} aria-hidden="true" />
+              <span>Export CSV</span>
+            </button>
+            <button
+              className="row-action row-action--with-icon"
+              type="button"
+              onClick={handleExportHistoryXlsx}
+              disabled={isReportingBusy}
+            >
+              <FileSpreadsheet size={15} aria-hidden="true" />
+              <span>Export XLSX</span>
             </button>
             <button className="row-action row-action--danger" type="button" onClick={handleClearHistory} disabled={isBusy}>
               Vider
@@ -2255,16 +3001,48 @@ export default function App() {
             {activeColumns.map((column) => (
               <div className="cell-field" key={column}>
                 <label htmlFor={`cell-${column}`}>{getColumnLabel(activeSheet, column)}</label>
-                <input
-                  id={`cell-${column}`}
-                  value={draftCells[column] ?? ""}
-                  onChange={(event) =>
-                    setDraftCells((prev) => ({
-                      ...prev,
-                      [column]: event.target.value
-                    }))
+                {(() => {
+                  const suggestions = getSheetFieldSuggestions(activeSheet?.name, column);
+                  const inputId = `cell-${column}`;
+                  const datalistId = suggestions.length > 0 ? `cell-suggestions-${activeSheet?.name ?? "sheet"}-${column}` : undefined;
+                  const useTextarea =
+                    (activeSheet?.name === "Feuil3" && ["H", "J", "L"].includes(column)) ||
+                    (activeSheet?.name === "Feuil5" && ["M", "N", "O", "P"].includes(column));
+
+                  const commonProps = {
+                    id: inputId,
+                    value: draftCells[column] ?? "",
+                    onChange: (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+                      setDraftCells((prev) => ({
+                        ...prev,
+                        [column]: event.target.value
+                      }))
+                  };
+
+                  if (useTextarea) {
+                    return (
+                      <textarea
+                        {...commonProps}
+                        className="input-textarea"
+                        rows={column === "L" ? 4 : 3}
+                        placeholder={suggestions[0] || "Saisie métier"}
+                      />
+                    );
                   }
-                />
+
+                  return (
+                    <>
+                      <input {...commonProps} list={datalistId} />
+                      {datalistId ? (
+                        <datalist id={datalistId}>
+                          {suggestions.map((item) => (
+                            <option key={`${column}-${item}`} value={item} />
+                          ))}
+                        </datalist>
+                      ) : null}
+                    </>
+                  );
+                })()}
               </div>
             ))}
           </div>
@@ -2421,14 +3199,6 @@ export default function App() {
           </div>
         </div>
 
-        <div className="hero__status">
-          <span className="pill">Total lignes: {status?.totalRows ?? "-"}</span>
-          <span className="pill">Voies: {roads.length}</span>
-          <span className="pill">Dégradations: {degradations.length}</span>
-          <span className="pill">Historique: {status?.decisionHistoryCount ?? 0}</span>
-          <span className="pill">Dernier import: {status?.lastImportAt ?? "-"}</span>
-        </div>
-
         <div className="hero__actions">
           <input
             className="hero-input hero-input--path"
@@ -2448,11 +3218,45 @@ export default function App() {
             <RefreshCw size={16} aria-hidden="true" />
             <span>Actualiser</span>
           </button>
+          <span className="pill">Dernier import: {status?.lastImportAt ? fmtDate(status.lastImportAt) : "-"}</span>
         </div>
 
         {error ? <p className="hero__error">{error}</p> : null}
         {notice ? <p className="hero__notice">{notice}</p> : null}
+        {dashboardSummary?.integrity && !(dashboardSummary.integrity.status === "OK" && isIntegrityAlertDismissed) ? (
+          <div className="integrity-alert">
+            <span className="integrity-alert__content">
+              {dashboardSummary.integrity.status === "OK" ? (
+                <ShieldCheck size={16} aria-hidden="true" />
+              ) : (
+                <TriangleAlert size={16} aria-hidden="true" />
+              )}
+              <span>
+                Cohérence: {dashboardSummary.integrity.status === "OK" ? "OK" : "à vérifier"} ·{" "}
+                {dashboardSummary.integrity.issues.length} point(s) détecté(s)
+              </span>
+            </span>
+            {dashboardSummary.integrity.status === "OK" ? (
+              <button
+                className="integrity-alert__action integrity-alert__action--icon"
+                type="button"
+                onClick={() => setIsIntegrityAlertDismissed(true)}
+                title="Fermer"
+                aria-label="Fermer"
+              >
+                <X size={14} aria-hidden="true" />
+              </button>
+            ) : (
+              <button className="integrity-alert__action" type="button" onClick={() => setActiveView("dashboard")}>
+                Gérer
+              </button>
+            )}
+          </div>
+        ) : null}
         <nav className="hero__nav">
+          <button className={activeView === "dashboard" ? "active" : ""} type="button" onClick={() => setActiveView("dashboard")}>
+            Tableau de bord
+          </button>
           <button className={activeView === "decision" ? "active" : ""} type="button" onClick={() => setActiveView("decision")}>
             Aide à la décision
           </button>
@@ -2470,7 +3274,7 @@ export default function App() {
             Suivi
           </button>
           <button className={activeView === "history" ? "active" : ""} type="button" onClick={() => setActiveView("history")}>
-            Historique
+            Historique ({status?.decisionHistoryCount ?? 0})
           </button>
           {definitions.map((sheet) => (
             <button
@@ -2485,6 +3289,7 @@ export default function App() {
         </nav>
       </header>
 
+      {activeView === "dashboard" ? renderDashboardView() : null}
       {activeView === "decision" ? renderDecisionView() : null}
       {activeView === "catalogue" ? renderCatalogueView() : null}
       {activeView === "degradations" ? renderDegradationsView() : null}
@@ -2499,3 +3304,7 @@ export default function App() {
     </div>
   );
 }
+
+
+
+

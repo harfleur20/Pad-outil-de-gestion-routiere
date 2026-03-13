@@ -70,6 +70,72 @@ export type DataIntegrityReport = {
   issues: DataIntegrityIssue[];
 };
 
+export type ImportSheetPreview = {
+  name: string;
+  title: string;
+  present: boolean;
+  rowCount: number;
+  expectedColumns: number;
+};
+
+export type ImportPreview = {
+  filePath: string;
+  workbookSheetNames: string[];
+  missingSheets: string[];
+  warnings: string[];
+  ready: boolean;
+  totals: {
+    rows: number;
+    roads: number;
+    degradations: number;
+    sections: number;
+  };
+  sheetPreviews: ImportSheetPreview[];
+};
+
+export type CountByLabel = {
+  label: string;
+  count: number;
+};
+
+export type BackupResult = {
+  filePath: string;
+  size?: number;
+  exportedAt?: string;
+};
+
+export type ReportExportResult = {
+  filePath: string;
+  reportType: "history" | "maintenance";
+  rowCount: number;
+};
+
+export type AttachmentUploadResult = {
+  storedPath: string;
+  fileName: string;
+  size: number;
+};
+
+export type DashboardSummary = {
+  generatedAt: string;
+  totals: {
+    roads: number;
+    degradations: number;
+    decisionHistory: number;
+    maintenance: number;
+    pendingMaintenance: number;
+    completedMaintenance: number;
+    estimatedBudget: number;
+    urgentDrainage: number;
+  };
+  roadsBySap: CountByLabel[];
+  roadsByState: CountByLabel[];
+  maintenanceByStatus: CountByLabel[];
+  topDegradations: CountByLabel[];
+  integrity: DataIntegrityReport;
+  recentMaintenance: MaintenanceInterventionItem[];
+};
+
 export type SapSector = {
   code: string;
   name: string;
@@ -190,6 +256,8 @@ export type MaintenanceInterventionItem = {
   deflectionAfter: number | null;
   solutionApplied: string;
   contractorName: string;
+  responsibleName: string;
+  attachmentPath: string;
   observation: string;
   costAmount: number | null;
 };
@@ -208,6 +276,9 @@ export type MaintenanceInterventionPayload = {
   deflectionAfter?: number;
   solutionApplied?: string;
   contractorName?: string;
+  responsibleName?: string;
+  attachmentPath?: string;
   observation?: string;
   costAmount?: number;
 };
+

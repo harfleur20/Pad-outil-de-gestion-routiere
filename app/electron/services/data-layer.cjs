@@ -201,6 +201,15 @@ const DEFLECTION_RULES_SEED = [
   }
 ];
 
+const DEGRADATION_CAUSE_FALLBACKS = {
+  ARRACHEMENTS_DU_REVETEMENT:
+    "Perte d'adherence ou vieillissement du revetement entrainant le depart progressif des granulats.",
+  EPAUFFURES:
+    "Degradation des bords ou des joints liee aux chocs, a une mise en oeuvre insuffisante ou a l'infiltration d'eau.",
+  CANIVEAUX_OBSTRUES:
+    "Accumulation de dechets, sables et boues dans les caniveaux, empechant l'ecoulement normal des eaux."
+};
+
 const DRAINAGE_RULES_SEED = [
   {
     ruleOrder: 10,
@@ -260,6 +269,27 @@ const DRAINAGE_RULES_SEED = [
   }
 ];
 
+const BACKUP_TABLES = [
+  "app_meta",
+  ...SHEET_DEFINITIONS.map((sheet) => sheet.table),
+  "sap_sector",
+  "road",
+  "degradation",
+  "degradation_cause",
+  "road_degradation",
+  "road_section",
+  "road_measurement",
+  "decision_profile_input",
+  "maintenance_solution_template",
+  "degradation_solution_assignment",
+  "degradation_solution_override_rel",
+  "degradation_definition",
+  "deflection_rule",
+  "drainage_rule",
+  "decision_history",
+  "maintenance_intervention"
+];
+
 function setupDataLayer({ app }) {
   const dataDir = path.join(app.getPath("userData"), "data");
   fs.mkdirSync(dataDir, { recursive: true });
@@ -296,7 +326,11 @@ function setupDataLayer({ app }) {
     listSheetDefinitions: () => listSheetDefinitions(),
     getDataStatus: () => getDataStatus(db),
     getDataIntegrityReport: () => getDataIntegrityReport(db),
+    getDashboardSummary: () => getDashboardSummary(db),
     importFromExcel: (excelPath) => importFromExcelInternal(db, excelPath || resolveDefaultExcelPath()),
+    previewExcelImport: (excelPath) => previewExcelImport(excelPath || resolveDefaultExcelPath()),
+    exportBackup: (filePath) => exportBackupSnapshot(db, filePath),
+    restoreBackup: (filePath) => restoreBackupSnapshot(db, filePath),
     listSheetRows: (sheetName, filters) => listSheetRows(db, sheetName, filters),
     createSheetRow: (sheetName, payload) => createSheetRow(db, sheetName, payload),
     updateSheetRow: (sheetName, rowId, payload) => updateSheetRow(db, sheetName, rowId, payload),
@@ -319,7 +353,8 @@ function setupDataLayer({ app }) {
     deleteMaintenanceIntervention: (interventionId) => deleteMaintenanceIntervention(db, interventionId),
     evaluateDecision: (payload) => evaluateDecision(db, payload),
     listDecisionHistory: (filters) => listDecisionHistory(db, filters),
-    clearDecisionHistory: () => clearDecisionHistory(db)
+    clearDecisionHistory: () => clearDecisionHistory(db),
+    exportReportWorkbook: (reportType, filePath) => exportReportWorkbook(db, reportType, filePath)
   };
 }
 
@@ -330,6 +365,18 @@ function preEnsureLegacyColumns(db) {
   ensureColumnIfMissing(db, "degradation", "degradation_code", "degradation_code TEXT NOT NULL DEFAULT ''");
   ensureColumnIfMissing(db, "degradation", "name", "name TEXT NOT NULL DEFAULT ''");
   ensureColumnIfMissing(db, "degradation_cause", "degradation_code", "degradation_code TEXT NOT NULL DEFAULT ''");
+  ensureColumnIfMissing(
+    db,
+    "maintenance_intervention",
+    "responsible_name",
+    "responsible_name TEXT NOT NULL DEFAULT ''"
+  );
+  ensureColumnIfMissing(
+    db,
+    "maintenance_intervention",
+    "attachment_path",
+    "attachment_path TEXT NOT NULL DEFAULT ''"
+  );
   ensureColumnIfMissing(db, "road_degradation", "road_id", "road_id INTEGER");
   ensureColumnIfMissing(db, "deflection_rule", "rule_order", "rule_order INTEGER");
   ensureColumnIfMissing(db, "drainage_rule", "rule_order", "rule_order INTEGER");
@@ -563,6 +610,8 @@ function ensureSchema(db) {
       deflection_after REAL,
       solution_applied TEXT NOT NULL DEFAULT '',
       contractor_name TEXT NOT NULL DEFAULT '',
+      responsible_name TEXT NOT NULL DEFAULT '',
+      attachment_path TEXT NOT NULL DEFAULT '',
       observation TEXT NOT NULL DEFAULT '',
       cost_amount REAL,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -1302,6 +1351,7 @@ function buildRoadLookupMaps(db) {
     const key = toText(row.roadKey);
     const code = normalizeRoadCode(row.roadCode);
     const designation = normalizeText(row.designation);
+    const simplifiedDesignation = normalizeText(simplifyRoadDesignation(row.designation));
 
     if (key && !byKey.has(key)) {
       byKey.set(key, row);
@@ -1311,6 +1361,9 @@ function buildRoadLookupMaps(db) {
     }
     if (designation && !byDesignation.has(designation)) {
       byDesignation.set(designation, row);
+    }
+    if (simplifiedDesignation && !byDesignation.has(simplifiedDesignation)) {
+      byDesignation.set(simplifiedDesignation, row);
     }
   }
 
@@ -1711,9 +1764,9 @@ function buildRoadMeasurementCatalog(db) {
   let currentDesignation = "";
 
   for (const row of rows) {
-    const headerCandidate = toText(row.A) || toText(row.E);
-    if (isRoadDesignationText(headerCandidate)) {
-      currentDesignation = headerCandidate;
+    const designationCandidate = resolveMeasurementDesignationCandidate(row);
+    if (designationCandidate) {
+      currentDesignation = designationCandidate;
     }
 
     const pkLecture = toText(row.A);
@@ -1727,7 +1780,7 @@ function buildRoadMeasurementCatalog(db) {
       continue;
     }
 
-    const designation = currentDesignation;
+    const designation = simplifyRoadDesignation(currentDesignation);
     const roadKey = designation ? makeRoadKey("", designation) : "";
     const pkM = toNumber(pkDeflection) ?? toNumber(pkLecture);
 
@@ -1754,6 +1807,17 @@ function buildRoadMeasurementCatalog(db) {
   }
 
   return items;
+}
+
+function resolveMeasurementDesignationCandidate(row) {
+  const candidates = [row.B, row.A, row.E];
+  for (const candidate of candidates) {
+    const cleaned = simplifyRoadDesignation(candidate);
+    if (isRoadDesignationText(cleaned)) {
+      return cleaned;
+    }
+  }
+  return "";
 }
 
 function buildDecisionProfileInputs(db) {
@@ -2181,6 +2245,324 @@ function getDataIntegrityReport(db) {
   };
 }
 
+function getDashboardSummary(db) {
+  const scalar = (sql, ...params) => {
+    const row = db.prepare(sql).get(...params);
+    const value = row ? Object.values(row)[0] : 0;
+    return Number(value) || 0;
+  };
+
+  const totals = {
+    roads: scalar("SELECT COUNT(*) AS count FROM road"),
+    degradations: scalar("SELECT COUNT(*) AS count FROM degradation"),
+    decisionHistory: scalar("SELECT COUNT(*) AS count FROM decision_history"),
+    maintenance: scalar("SELECT COUNT(*) AS count FROM maintenance_intervention"),
+    pendingMaintenance: scalar(
+      "SELECT COUNT(*) AS count FROM maintenance_intervention WHERE status IN ('PREVU', 'EN_COURS')"
+    ),
+    completedMaintenance: scalar(
+      "SELECT COUNT(*) AS count FROM maintenance_intervention WHERE status = 'TERMINE'"
+    ),
+    estimatedBudget: scalar("SELECT COALESCE(SUM(cost_amount), 0) AS total FROM maintenance_intervention"),
+    urgentDrainage: scalar(`
+      SELECT COUNT(*) AS count
+      FROM road
+      WHERE UPPER(COALESCE(drainage_state, '')) LIKE '%OBSTR%'
+         OR UPPER(COALESCE(drainage_state, '')) LIKE '%MAUV%'
+         OR UPPER(COALESCE(drainage_state, '')) LIKE '%NON FONCTION%'
+    `)
+  };
+
+  const roadsBySap = db
+    .prepare(
+      `
+      SELECT COALESCE(sap_code, 'NON RENSEIGNE') AS label, COUNT(*) AS count
+      FROM road
+      GROUP BY COALESCE(sap_code, 'NON RENSEIGNE')
+      ORDER BY count DESC, label
+    `
+    )
+    .all()
+    .map((row) => ({ label: toText(row.label), count: Number(row.count) || 0 }));
+
+  const roadsByState = db
+    .prepare(
+      `
+      SELECT COALESCE(NULLIF(TRIM(pavement_state), ''), 'NON RENSEIGNE') AS label, COUNT(*) AS count
+      FROM road
+      GROUP BY COALESCE(NULLIF(TRIM(pavement_state), ''), 'NON RENSEIGNE')
+      ORDER BY count DESC, label
+      LIMIT 8
+    `
+    )
+    .all()
+    .map((row) => ({ label: toText(row.label), count: Number(row.count) || 0 }));
+
+  const maintenanceByStatus = db
+    .prepare(
+      `
+      SELECT status AS label, COUNT(*) AS count
+      FROM maintenance_intervention
+      GROUP BY status
+      ORDER BY count DESC, status
+    `
+    )
+    .all()
+    .map((row) => ({ label: normalizeMaintenanceStatus(row.label) || "PREVU", count: Number(row.count) || 0 }));
+
+  const topDegradations = db
+    .prepare(
+      `
+      SELECT degradation_name AS label, COUNT(*) AS count
+      FROM (
+        SELECT degradation_name FROM decision_history
+        UNION ALL
+        SELECT degradation_name FROM maintenance_intervention
+      ) x
+      WHERE TRIM(COALESCE(degradation_name, '')) <> ''
+      GROUP BY degradation_name
+      ORDER BY count DESC, degradation_name
+      LIMIT 8
+    `
+    )
+    .all()
+    .map((row) => ({ label: toText(row.label), count: Number(row.count) || 0 }));
+
+  return {
+    generatedAt: new Date().toISOString(),
+    totals,
+    roadsBySap,
+    roadsByState,
+    maintenanceByStatus,
+    topDegradations,
+    integrity: getDataIntegrityReport(db),
+    recentMaintenance: listMaintenanceInterventions(db, { limit: 5 })
+  };
+}
+
+function previewExcelImport(excelPath) {
+  if (!excelPath || !fs.existsSync(excelPath)) {
+    throw new Error("Fichier Excel introuvable.");
+  }
+
+  const workbook = XLSX.readFile(excelPath);
+  const workbookSheetNames = Array.isArray(workbook.SheetNames) ? workbook.SheetNames.map((name) => toText(name)) : [];
+  const sheetPreviews = SHEET_DEFINITIONS.map((sheet) => {
+    const rows = workbook.Sheets[sheet.name] ? getSheetRows(workbook, sheet) : [];
+    return {
+      name: sheet.name,
+      title: sheet.title,
+      present: Boolean(workbook.Sheets[sheet.name]),
+      rowCount: rows.length,
+      expectedColumns: sheet.columns.length
+    };
+  });
+
+  const missingSheets = sheetPreviews.filter((item) => !item.present).map((item) => item.name);
+  const warnings = [
+    ...sheetPreviews
+      .filter((item) => item.present && item.rowCount === 0)
+      .map((item) => `${item.name} est presente mais vide.`),
+    ...missingSheets.map((sheetName) => `${sheetName} est absente du fichier.`)
+  ];
+
+  const estimates = estimateWorkbookEntities(workbook);
+
+  return {
+    filePath: excelPath,
+    workbookSheetNames,
+    missingSheets,
+    warnings,
+    ready: missingSheets.length === 0,
+    totals: {
+      rows: sheetPreviews.reduce((sum, item) => sum + item.rowCount, 0),
+      roads: estimates.roads,
+      degradations: estimates.degradations,
+      sections: estimates.sections
+    },
+    sheetPreviews
+  };
+}
+
+function estimateWorkbookEntities(workbook) {
+  const roadKeys = new Set();
+  for (const row of getSheetRows(workbook, "Feuil6")) {
+    const roadKey = makeRoadKey(row.C, row.E);
+    if (roadKey && roadKey !== "NAME_") {
+      roadKeys.add(roadKey);
+    }
+  }
+  if (roadKeys.size === 0) {
+    for (const row of getSheetRows(workbook, "Feuil2")) {
+      if (isRoadLabel(row.C, row.D)) {
+        roadKeys.add(makeRoadKey(row.C, row.D));
+      }
+    }
+  }
+
+  const degradationKeys = new Set();
+  for (const row of getSheetRows(workbook, "Feuil7")) {
+    const code = normalizeDegradationKey(row.C || row.B);
+    if (code) {
+      degradationKeys.add(code);
+    }
+  }
+
+  return {
+    roads: roadKeys.size,
+    degradations: degradationKeys.size,
+    sections: getSheetRows(workbook, "Feuil2").length
+  };
+}
+
+function exportBackupSnapshot(db, filePath) {
+  const targetPath = toText(filePath);
+  if (!targetPath) {
+    throw new Error("Chemin de sauvegarde invalide.");
+  }
+
+  const payload = {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    tables: {}
+  };
+
+  for (const tableName of BACKUP_TABLES) {
+    if (!tableExists(db, tableName)) {
+      continue;
+    }
+    payload.tables[tableName] = db.prepare(`SELECT * FROM ${tableName}`).all();
+  }
+
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  fs.writeFileSync(targetPath, JSON.stringify(payload, null, 2), "utf8");
+  const stats = fs.statSync(targetPath);
+  return {
+    filePath: targetPath,
+    size: Number(stats.size) || 0,
+    exportedAt: payload.exportedAt
+  };
+}
+
+function restoreBackupSnapshot(db, filePath) {
+  const sourcePath = toText(filePath);
+  if (!sourcePath || !fs.existsSync(sourcePath)) {
+    throw new Error("Fichier de sauvegarde introuvable.");
+  }
+
+  const payload = JSON.parse(fs.readFileSync(sourcePath, "utf8"));
+  if (!payload || typeof payload !== "object" || !payload.tables || typeof payload.tables !== "object") {
+    throw new Error("Format de sauvegarde invalide.");
+  }
+
+  const tx = db.transaction(() => {
+    db.pragma("foreign_keys = OFF");
+
+    for (const tableName of [...BACKUP_TABLES].reverse()) {
+      if (!tableExists(db, tableName)) {
+        continue;
+      }
+      db.prepare(`DELETE FROM ${tableName}`).run();
+      resetAutoincrementSequence(db, tableName);
+    }
+
+    for (const tableName of BACKUP_TABLES) {
+      if (!tableExists(db, tableName)) {
+        continue;
+      }
+      const rows = Array.isArray(payload.tables[tableName]) ? payload.tables[tableName] : [];
+      if (rows.length === 0) {
+        continue;
+      }
+
+      const validColumns = new Set(
+        db.prepare(`PRAGMA table_info(${tableName})`).all().map((column) => toText(column.name))
+      );
+
+      for (const row of rows) {
+        const columns = Object.keys(row).filter((column) => validColumns.has(column));
+        if (columns.length === 0) {
+          continue;
+        }
+        const placeholders = columns.map(() => "?").join(", ");
+        const values = columns.map((column) => row[column]);
+        db.prepare(`INSERT INTO ${tableName} (${columns.join(", ")}) VALUES (${placeholders})`).run(...values);
+      }
+    }
+
+    db.pragma("foreign_keys = ON");
+  });
+
+  tx();
+
+  seedSolutionCatalog(db);
+  seedDeflectionRules(db);
+  seedDrainageRules(db);
+  if (isDatabaseEmpty(db) === false) {
+    rebuildNormalizedCatalogs(db);
+    migrateLegacySolutionMapping(db);
+  }
+  setMeta(db, "backup_restored_at", new Date().toISOString());
+  setMeta(db, "backup_restored_from", sourcePath);
+  return getDataStatus(db);
+}
+
+function exportReportWorkbook(db, reportType, filePath) {
+  const targetPath = toText(filePath);
+  if (!targetPath) {
+    throw new Error("Chemin d'export invalide.");
+  }
+
+  const workbook = XLSX.utils.book_new();
+  let rows = [];
+  let sheetName = "Rapport";
+
+  if (reportType === "maintenance") {
+    sheetName = "Entretiens";
+    rows = listMaintenanceInterventions(db, { limit: 5000 }).map((item) => ({
+      Date: item.interventionDate,
+      Statut: item.status,
+      SAP: item.sapCode,
+      CodeVoie: item.roadCode,
+      Voie: item.roadDesignation,
+      TypeEntretien: item.interventionType,
+      Degradation: item.degradationName,
+      EtatAvant: item.stateBefore,
+      EtatApres: item.stateAfter,
+      SolutionAppliquee: item.solutionApplied,
+      Prestataire: item.contractorName,
+      Responsable: item.responsibleName,
+      Cout: item.costAmount,
+      PieceJointe: item.attachmentPath,
+      Observation: item.observation
+    }));
+  } else {
+    sheetName = "Decisions";
+    rows = listDecisionHistory(db, { limit: 5000 }).map((item) => ({
+      Date: item.createdAt,
+      SAP: item.sapCode,
+      CodeVoie: item.roadCode,
+      Voie: item.roadDesignation,
+      Degradation: item.degradationName,
+      CauseProbable: item.probableCause,
+      Deflexion: item.deflectionValue,
+      Severite: item.deflectionSeverity,
+      Recommendation: item.deflectionRecommendation,
+      Assainissement: item.drainageRecommendation
+    }));
+  }
+
+  const worksheet = XLSX.utils.json_to_sheet(rows);
+  XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  XLSX.writeFile(workbook, targetPath);
+  return {
+    filePath: targetPath,
+    reportType: reportType === "maintenance" ? "maintenance" : "history",
+    rowCount: rows.length
+  };
+}
+
 function listSapSectors(db) {
   return db
     .prepare(
@@ -2457,6 +2839,8 @@ function listMaintenanceInterventions(db, filters = {}) {
         intervention_type LIKE @search OR
         solution_applied LIKE @search OR
         contractor_name LIKE @search OR
+        responsible_name LIKE @search OR
+        attachment_path LIKE @search OR
         observation LIKE @search
       )`
     );
@@ -2488,6 +2872,8 @@ function listMaintenanceInterventions(db, filters = {}) {
       deflection_after AS deflectionAfter,
       solution_applied AS solutionApplied,
       contractor_name AS contractorName,
+      responsible_name AS responsibleName,
+      attachment_path AS attachmentPath,
       observation,
       cost_amount AS costAmount
     FROM maintenance_intervention
@@ -2577,6 +2963,8 @@ function upsertMaintenanceIntervention(db, payload = {}) {
     toNumber(payload.deflectionAfter),
     toText(payload.solutionApplied),
     toText(payload.contractorName),
+    toText(payload.responsibleName),
+    toText(payload.attachmentPath),
     toText(payload.observation),
     toNumber(payload.costAmount)
   ];
@@ -2609,6 +2997,8 @@ function upsertMaintenanceIntervention(db, payload = {}) {
         deflection_after = ?,
         solution_applied = ?,
         contractor_name = ?,
+        responsible_name = ?,
+        attachment_path = ?,
         observation = ?,
         cost_amount = ?,
         updated_at = datetime('now')
@@ -2638,9 +3028,11 @@ function upsertMaintenanceIntervention(db, payload = {}) {
           deflection_after,
           solution_applied,
           contractor_name,
+          responsible_name,
+          attachment_path,
           observation,
           cost_amount
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `
       ).run(...values).lastInsertRowid
     );
@@ -2904,8 +3296,12 @@ function buildDegradationCatalog(db) {
   }
 
   const items = [...map.values()].map((entry, index) => {
-    const uniqueCauses = [...new Set(entry.causes.map((cause) => toText(cause)).filter(Boolean))];
     const degradationCode = normalizeDegradationKey(entry.name);
+    const fallbackCause = DEGRADATION_CAUSE_FALLBACKS[degradationCode] || "";
+    const uniqueCauses = [...new Set(entry.causes.map((cause) => toText(cause)).filter(Boolean))];
+    if (uniqueCauses.length === 0 && fallbackCause) {
+      uniqueCauses.push(fallbackCause);
+    }
     const resolved = resolveSolutionForDegradation(degradationCode, templates, rules, overrides);
 
     return {
@@ -3217,8 +3613,27 @@ function isRoadLabel(roadCode, designation) {
   return /^(RUE|BVD|AV|BOULEVARD|AVENUE)/.test(code);
 }
 
+function simplifyRoadDesignation(value) {
+  let text = toText(value);
+  if (!text) {
+    return "";
+  }
+
+  text = text.replace(/\s+/g, " ").trim();
+  text = text.replace(/\([^)]*\)/g, " ").replace(/\s+/g, " ").trim();
+  text = text.replace(/\bTRON[CÇ]ON\b.*$/i, "").trim();
+  text = text.replace(/\bDU\s+PK\b.*$/i, "").trim();
+
+  const roadMatch = text.match(/((?:RUE|BVD|BOULEVARD|AV|AVENUE)[^,;]*)/i);
+  if (roadMatch) {
+    text = roadMatch[1].trim();
+  }
+
+  return text;
+}
+
 function isRoadDesignationText(value) {
-  const text = toText(value);
+  const text = simplifyRoadDesignation(value);
   if (!text || isLikelyPkValue(text)) {
     return false;
   }

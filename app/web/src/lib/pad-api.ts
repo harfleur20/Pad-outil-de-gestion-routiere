@@ -1,13 +1,18 @@
 ﻿import type {
+  AttachmentUploadResult,
+  BackupResult,
   DataIntegrityReport,
   DataStatus,
+  DashboardSummary,
   DrainageRule,
   DecisionHistoryItem,
   DecisionResult,
   DegradationItem,
+  ImportPreview,
   MaintenanceInterventionItem,
   MaintenanceInterventionPayload,
   MaintenanceSolutionTemplate,
+  ReportExportResult,
   RoadCatalogItem,
   SapSector,
   SheetDefinition,
@@ -31,6 +36,16 @@ function requireBridge() {
   return window.padApp;
 }
 
+function requireFunctionBridgeMethod<T extends (...args: never[]) => unknown>(
+  method: T | undefined,
+  message: string
+): T {
+  if (typeof method !== "function") {
+    throw new Error(message);
+  }
+  return method;
+}
+
 export const padApi = {
   async getDataStatus(): Promise<DataStatus> {
     if (!window.padApp?.data?.getStatus) {
@@ -44,14 +59,34 @@ export const padApi = {
     return bridge.audit.integrity();
   },
 
+  async getDashboardSummary(): Promise<DashboardSummary> {
+    const bridge = requireBridge();
+    return bridge.dashboard.summary();
+  },
+
   async importFromExcel(excelPath?: string): Promise<DataStatus> {
     const bridge = requireBridge();
     return bridge.data.importFromExcel(excelPath);
   },
 
+  async previewExcelImport(excelPath?: string): Promise<ImportPreview> {
+    const bridge = requireBridge();
+    return bridge.data.previewExcelImport(excelPath);
+  },
+
   async pickExcelFile(): Promise<string | null> {
     const bridge = requireBridge();
     return bridge.data.pickExcelFile();
+  },
+
+  async exportBackup(): Promise<BackupResult | null> {
+    const bridge = requireBridge();
+    return bridge.backup.export();
+  },
+
+  async restoreBackup(): Promise<DataStatus | null> {
+    const bridge = requireBridge();
+    return bridge.backup.restore();
   },
 
   async listSheetDefinitions(): Promise<SheetDefinition[]> {
@@ -168,6 +203,24 @@ export const padApi = {
     return bridge.maintenance.delete(interventionId);
   },
 
+  async pickMaintenanceAttachment(): Promise<AttachmentUploadResult | null> {
+    const bridge = requireBridge();
+    const pickAttachment = requireFunctionBridgeMethod(
+      bridge.maintenance?.pickAttachment,
+      "La fonction de pièce jointe n'est pas disponible dans cette session Electron. Ferme puis relance l'application."
+    );
+    return pickAttachment();
+  },
+
+  async openMaintenanceAttachment(attachmentPath: string): Promise<{ opened: boolean }> {
+    const bridge = requireBridge();
+    const openAttachment = requireFunctionBridgeMethod(
+      bridge.maintenance?.openAttachment,
+      "L'ouverture des pièces jointes n'est pas disponible dans cette session Electron. Ferme puis relance l'application."
+    );
+    return openAttachment(attachmentPath);
+  },
+
   async evaluateDecision(payload: {
     roadId?: number;
     roadKey?: string;
@@ -190,6 +243,19 @@ export const padApi = {
   async clearDecisionHistory(): Promise<{ deleted: boolean }> {
     const bridge = requireBridge();
     return bridge.reporting.clearHistory();
+  },
+
+  async exportDecisionHistoryXlsx(): Promise<ReportExportResult | null> {
+    const bridge = requireBridge();
+    return bridge.reporting.exportHistoryXlsx();
+  },
+
+  async exportMaintenanceHistoryXlsx(): Promise<ReportExportResult | null> {
+    const bridge = requireBridge();
+    return bridge.reporting.exportMaintenanceXlsx();
   }
 };
+
+
+
 

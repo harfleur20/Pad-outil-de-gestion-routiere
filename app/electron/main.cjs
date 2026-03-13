@@ -1,9 +1,23 @@
-const { app, BrowserWindow, ipcMain, dialog } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
 const path = require("path");
+const fs = require("fs");
 
 const isDev = !app.isPackaged;
 let dataLayer = null;
 const appIconPath = path.join(__dirname, "assets", "icon.ico");
+const MAX_ATTACHMENT_SIZE_BYTES = 2 * 1024 * 1024;
+const MAINTENANCE_ATTACHMENT_EXTENSIONS = [
+  "png",
+  "jpg",
+  "jpeg",
+  "webp",
+  "pdf",
+  "doc",
+  "docx",
+  "xls",
+  "xlsx",
+  "txt"
+];
 
 if (process.platform === "win32") {
   app.setAppUserModelId("cm.pad.maintenance");
@@ -35,6 +49,7 @@ function createMainWindow() {
 function registerIpcHandlers() {
   ipcMain.handle("data:status", () => dataLayer.getDataStatus());
   ipcMain.handle("data:importFromExcel", (_event, excelPath) => dataLayer.importFromExcel(excelPath));
+  ipcMain.handle("data:previewExcelImport", (_event, excelPath) => dataLayer.previewExcelImport(excelPath));
   ipcMain.handle("data:pickExcelFile", async () => {
     const result = await dialog.showOpenDialog({
       title: "Selectionner un fichier Excel",
@@ -50,6 +65,29 @@ function registerIpcHandlers() {
     return result.filePaths[0];
   });
   ipcMain.handle("audit:integrity", () => dataLayer.getDataIntegrityReport());
+  ipcMain.handle("dashboard:summary", () => dataLayer.getDashboardSummary());
+  ipcMain.handle("backup:export", async () => {
+    const result = await dialog.showSaveDialog({
+      title: "Sauvegarder les donnees PAD",
+      defaultPath: "pad-maintenance-backup.json",
+      filters: [{ name: "Sauvegarde JSON", extensions: ["json"] }]
+    });
+    if (result.canceled || !result.filePath) {
+      return null;
+    }
+    return dataLayer.exportBackup(result.filePath);
+  });
+  ipcMain.handle("backup:restore", async () => {
+    const result = await dialog.showOpenDialog({
+      title: "Restaurer une sauvegarde PAD",
+      properties: ["openFile"],
+      filters: [{ name: "Sauvegarde JSON", extensions: ["json"] }]
+    });
+    if (result.canceled || result.filePaths.length === 0) {
+      return null;
+    }
+    return dataLayer.restoreBackup(result.filePaths[0]);
+  });
 
   ipcMain.handle("sheet:definitions", () => dataLayer.listSheetDefinitions());
   ipcMain.handle("sheet:list", (_event, sheetName, filters) => dataLayer.listSheetRows(sheetName, filters));
@@ -81,9 +119,103 @@ function registerIpcHandlers() {
   ipcMain.handle("maintenance:delete", (_event, interventionId) =>
     dataLayer.deleteMaintenanceIntervention(interventionId)
   );
+  ipcMain.handle("maintenance:pickAttachment", async () => {
+    const result = await dialog.showOpenDialog({
+      title: "Sélectionner une pièce jointe d'entretien",
+      properties: ["openFile"],
+      filters: [
+        { name: "Pièces jointes", extensions: MAINTENANCE_ATTACHMENT_EXTENSIONS },
+        { name: "Images", extensions: ["png", "jpg", "jpeg", "webp"] },
+        { name: "Documents", extensions: ["pdf", "doc", "docx", "xls", "xlsx", "txt"] }
+      ]
+    });
+    if (result.canceled || result.filePaths.length === 0) {
+      return null;
+    }
+    return copyMaintenanceAttachment(result.filePaths[0]);
+  });
+  ipcMain.handle("maintenance:openAttachment", async (_event, attachmentPath) => {
+    const targetPath = String(attachmentPath || "").trim();
+    if (!targetPath) {
+      return { opened: false };
+    }
+    if (!fs.existsSync(targetPath)) {
+      throw new Error("Pièce jointe introuvable sur le poste.");
+    }
+    const openResult = await shell.openPath(targetPath);
+    if (openResult) {
+      throw new Error(openResult);
+    }
+    return { opened: true };
+  });
   ipcMain.handle("decision:evaluate", (_event, payload) => dataLayer.evaluateDecision(payload));
   ipcMain.handle("reporting:listHistory", (_event, filters) => dataLayer.listDecisionHistory(filters));
   ipcMain.handle("reporting:clearHistory", () => dataLayer.clearDecisionHistory());
+  ipcMain.handle("reporting:exportHistoryXlsx", async () => {
+    const result = await dialog.showSaveDialog({
+      title: "Exporter l'historique des decisions",
+      defaultPath: "pad-historique-decisions.xlsx",
+      filters: [{ name: "Classeur Excel", extensions: ["xlsx"] }]
+    });
+    if (result.canceled || !result.filePath) {
+      return null;
+    }
+    return dataLayer.exportReportWorkbook("history", result.filePath);
+  });
+  ipcMain.handle("reporting:exportMaintenanceXlsx", async () => {
+    const result = await dialog.showSaveDialog({
+      title: "Exporter l'historique des entretiens",
+      defaultPath: "pad-historique-entretiens.xlsx",
+      filters: [{ name: "Classeur Excel", extensions: ["xlsx"] }]
+    });
+    if (result.canceled || !result.filePath) {
+      return null;
+    }
+    return dataLayer.exportReportWorkbook("maintenance", result.filePath);
+  });
+}
+
+function copyMaintenanceAttachment(sourcePath) {
+  const normalizedSource = String(sourcePath || "").trim();
+  if (!normalizedSource || !fs.existsSync(normalizedSource)) {
+    throw new Error("Fichier de pièce jointe introuvable.");
+  }
+
+  const stats = fs.statSync(normalizedSource);
+  if (!stats.isFile()) {
+    throw new Error("La pièce jointe sélectionnée est invalide.");
+  }
+  if (stats.size > MAX_ATTACHMENT_SIZE_BYTES) {
+    throw new Error("La pièce jointe dépasse 2 Mo.");
+  }
+
+  const extension = path.extname(normalizedSource).replace(".", "").toLowerCase();
+  if (!MAINTENANCE_ATTACHMENT_EXTENSIONS.includes(extension)) {
+    throw new Error(
+      `Extension non autorisée. Formats acceptés: ${MAINTENANCE_ATTACHMENT_EXTENSIONS.join(", ")}.`
+    );
+  }
+
+  const originalName = path.basename(normalizedSource);
+  const safeBaseName = path
+    .basename(originalName, path.extname(originalName))
+    .replace(/[^a-zA-Z0-9-_]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 80) || "piece-jointe";
+
+  const attachmentsDir = path.join(app.getPath("userData"), "attachments");
+  fs.mkdirSync(attachmentsDir, { recursive: true });
+
+  const targetName = `${Date.now()}-${safeBaseName}.${extension}`;
+  const targetPath = path.join(attachmentsDir, targetName);
+  fs.copyFileSync(normalizedSource, targetPath);
+
+  return {
+    storedPath: targetPath,
+    fileName: originalName,
+    size: stats.size
+  };
 }
 
 function getStartupErrorMessage(error) {

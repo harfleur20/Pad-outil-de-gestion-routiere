@@ -2,14 +2,22 @@
 
 contextBridge.exposeInMainWorld("padApp", {
   appName: "PAD Maintenance Routière",
-  appVersion: "0.5.0",
+  appVersion: "0.6.0",
   data: {
     getStatus: () => ipcRenderer.invoke("data:status"),
     importFromExcel: (excelPath) => ipcRenderer.invoke("data:importFromExcel", excelPath),
+    previewExcelImport: (excelPath) => ipcRenderer.invoke("data:previewExcelImport", excelPath),
     pickExcelFile: () => ipcRenderer.invoke("data:pickExcelFile")
   },
   audit: {
     integrity: () => ipcRenderer.invoke("audit:integrity")
+  },
+  dashboard: {
+    summary: () => ipcRenderer.invoke("dashboard:summary")
+  },
+  backup: {
+    export: () => ipcRenderer.invoke("backup:export"),
+    restore: () => ipcRenderer.invoke("backup:restore")
   },
   sheet: {
     definitions: () => ipcRenderer.invoke("sheet:definitions"),
@@ -44,15 +52,20 @@ contextBridge.exposeInMainWorld("padApp", {
   maintenance: {
     list: (filters) => ipcRenderer.invoke("maintenance:list", filters),
     upsert: (payload) => ipcRenderer.invoke("maintenance:upsert", payload),
-    delete: (interventionId) => ipcRenderer.invoke("maintenance:delete", interventionId)
+    delete: (interventionId) => ipcRenderer.invoke("maintenance:delete", interventionId),
+    pickAttachment: () => ipcRenderer.invoke("maintenance:pickAttachment"),
+    openAttachment: (attachmentPath) => ipcRenderer.invoke("maintenance:openAttachment", attachmentPath)
   },
   decision: {
     evaluate: (payload) => ipcRenderer.invoke("decision:evaluate", payload)
   },
   reporting: {
     listHistory: (filters) => ipcRenderer.invoke("reporting:listHistory", filters),
-    clearHistory: () => ipcRenderer.invoke("reporting:clearHistory")
+    clearHistory: () => ipcRenderer.invoke("reporting:clearHistory"),
+    exportHistoryXlsx: () => ipcRenderer.invoke("reporting:exportHistoryXlsx"),
+    exportMaintenanceXlsx: () => ipcRenderer.invoke("reporting:exportMaintenanceXlsx")
   },
   ping: () => true
 });
+
 
