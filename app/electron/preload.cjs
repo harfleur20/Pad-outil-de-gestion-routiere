@@ -32,6 +32,14 @@ contextBridge.exposeInMainWorld("padApp", {
   roads: {
     list: (filters) => ipcRenderer.invoke("roads:list", filters)
   },
+  measurement: {
+    listCampaigns: (filters) => ipcRenderer.invoke("measurement:listCampaigns", filters),
+    listRows: (filters) => ipcRenderer.invoke("measurement:listRows", filters),
+    upsertCampaign: (payload) => ipcRenderer.invoke("measurement:upsertCampaign", payload),
+    deleteCampaign: (campaignId) => ipcRenderer.invoke("measurement:deleteCampaign", campaignId),
+    upsertRow: (payload) => ipcRenderer.invoke("measurement:upsertRow", payload),
+    deleteRow: (measurementId) => ipcRenderer.invoke("measurement:deleteRow", measurementId)
+  },
   degradations: {
     list: () => ipcRenderer.invoke("degradations:list")
   },

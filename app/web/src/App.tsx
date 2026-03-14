@@ -12,6 +12,7 @@ import {
   Gauge,
   Paperclip,
   Pencil,
+  Plus,
   Printer,
   RefreshCw,
   Settings2,
@@ -30,11 +31,13 @@ import type {
   DrainageRule,
   DegradationItem,
   ImportPreview,
+  MeasurementCampaignItem,
   MaintenanceInterventionItem,
   MaintenanceInterventionPayload,
   MaintenanceInterventionStatus,
   MaintenanceSolutionTemplate,
   RoadCatalogItem,
+  RoadMeasurementItem,
   SapSector,
   SheetColumnKey,
   SheetDefinition,
@@ -89,6 +92,365 @@ function createEmptyCells(columns: SheetColumnKey[]): Partial<Record<SheetColumn
 
 function getColumnLabel(sheet: SheetDefinition | null, column: SheetColumnKey) {
   return sheet?.columnLabels?.[column] || column;
+}
+
+function getEditableColumns(sheet: SheetDefinition | null): SheetColumnKey[] {
+  if (!sheet) {
+    return [];
+  }
+  if (sheet.name === "Feuil2") {
+    return ["A", "B", "C", "D", "E", "F", "G"];
+  }
+  if (sheet.name === "Feuil6") {
+    return ["B", "C", "D", "E", "F", "G"];
+  }
+  return sheet.columns;
+}
+
+function getSheetFieldPlaceholder(sheetName: string | undefined, column: SheetColumnKey) {
+  if (sheetName === "Feuil2") {
+    if (column === "A") return "Ex: 1";
+    if (column === "B") return "Ex: 1_1";
+    if (column === "C") return "Ex: Rue 01 ou Bvd 02";
+    if (column === "D") return "Ex: Rue des Archives";
+    if (column === "E") return "Ex: Dangote";
+    if (column === "F") return "Ex: Quai 60";
+    if (column === "G") return "Ex: 700";
+  }
+  if (sheetName === "Feuil3") {
+    if (column === "A") return "Ex: Rue 01";
+    if (column === "B") return "Ex: Rue des Archives";
+    if (column === "C") return "Ex: Dangote";
+    if (column === "D") return "Ex: Quai 60";
+    if (column === "E") return "Ex: 700";
+    if (column === "F") return "Ex: 7";
+    if (column === "G") return "Ex: BB";
+    if (column === "H") return "Ex: Bon, Moyen, Mauvais";
+    if (column === "I") return "Ex: E,F ou C";
+    if (column === "J") return "Ex: Obstrué par déchets et sable";
+    if (column === "K") return "Ex: 1,5";
+    if (column === "L") return "Ex: Curage de caniveaux";
+  }
+  if (sheetName === "Feuil5") {
+    if (column === "A") return "Ex: 1";
+    if (column === "B") return "Ex: 1_1";
+    if (column === "C") return "Ex: Rue 01";
+    if (column === "D") return "Ex: Rue des Archives";
+    if (column === "E") return "Ex: Dangote";
+    if (column === "F") return "Ex: Quai 60";
+    if (column === "G") return "Ex: 700";
+    if (column === "H") return "Ex: 7";
+    if (column === "I") return "Ex: BB";
+    if (column === "J") return "Ex: Bon, Moyen, Mauvais";
+    if (column === "K") return "Ex: E,F ou C";
+    if (column === "L") return "Ex: Bon ou Obstrué";
+    if (column === "M") return "Ex: 1,5";
+    if (column === "N") return "Ex: 1";
+    if (column === "O") return "Ex: 1";
+    if (column === "P") return "Ex: 0";
+  }
+  if (sheetName === "Feuil6") {
+    if (column === "A") return "Ex: 1";
+    if (column === "B") return "Ex: Rue, Boulevard ou Avenue";
+    if (column === "C") return "Ex: Rue.01";
+    if (column === "D") return "Ex: 700";
+    if (column === "E") return "Ex: Rue des Archives";
+    if (column === "F") return "Ex: de Dangote à Quai 60";
+    if (column === "G") return "Ex: Nom choisi à cause de l'activité de la zone";
+  }
+  if (sheetName === "Feuil4") {
+    if (column === "A") return "Ex: Domaine";
+    if (column === "B") return "Ex: Port de Douala Bonabéri";
+    if (column === "C") return "Ex: FORT";
+    if (column === "D") return "Ex: Renforcement lourd";
+    if (column === "E") return "Ex: Observations";
+    if (column === "F") return "Ex: VRAI ou FAUX";
+  }
+  if (sheetName === "Feuil7") {
+    if (column === "A") return "Ex: Chaussée";
+    if (column === "B") return "Ex: D1";
+    if (column === "C") return "Ex: Nids de poule";
+    if (column === "D") return "Ex: Dégradations de surface";
+    if (column === "E") return "Ex: Déformation";
+    if (column === "F") return "Ex: Observation terrain";
+    if (column === "G") return "Ex: Présence d'eau stagnante";
+  }
+  return "";
+}
+
+function getSheetFieldHelpText(sheetName: string | undefined, column: SheetColumnKey) {
+  if (sheetName === "Feuil2") {
+    if (column === "A") {
+      return "Écrivez le numéro du tronçon. Exemple : 1, 2, 3.";
+    }
+    if (column === "B") {
+      return "Écrivez le numéro de section sous la forme 1_1, 2_3 ou 6_1. Le nombre avant le tiret bas (_) crée le groupe SAP automatiquement.";
+    }
+    if (column === "C") {
+      return "Écrivez le code de la voie, par exemple Rue 01 ou Bvd 02.";
+    }
+    if (column === "G") {
+      return "Écrivez la longueur en mètres, par exemple 700.";
+    }
+  }
+  if (sheetName === "Feuil3") {
+    if (column === "A") return "Code court de la voie.";
+    if (column === "B") return "Nom complet de la voie.";
+    if (column === "C") return "Nom du lieu où la section commence. Ce n'est pas une date.";
+    if (column === "D") return "Nom du lieu où la section se termine. Ce n'est pas une date.";
+    if (column === "E") return "Longueur de la section en mètres.";
+    if (column === "F") return "Largeur minimale en mètres.";
+    if (column === "G") return "Type de revêtement observé sur la chaussée.";
+    if (column === "H") return "État général de la chaussée.";
+    if (column === "I") return "Type de caniveaux ou d'assainissement.";
+    if (column === "J") return "Décrivez l'état de l'assainissement avec des mots simples.";
+    if (column === "K") return "Largeur minimale des trottoirs en mètres.";
+    if (column === "L") return "Travaux ou entretien à prévoir sur cette voie.";
+  }
+  if (sheetName === "Feuil5") {
+    if (column === "A") return "Numéro du tronçon.";
+    if (column === "B") return "Numéro de section, par exemple 1_1 ou 2_3.";
+    if (column === "C") return "Code court de la voie.";
+    if (column === "D") return "Nom complet de la voie.";
+    if (column === "E") return "Nom du lieu où la section commence. Ce n'est pas une date.";
+    if (column === "F") return "Nom du lieu où la section se termine. Ce n'est pas une date.";
+    if (column === "G") return "Longueur de la section en mètres.";
+    if (column === "H") return "Largeur minimale en mètres.";
+    if (column === "I") return "Type de revêtement observé sur la chaussée.";
+    if (column === "J") return "État général de la chaussée.";
+    if (column === "K") return "Type de caniveaux ou d'assainissement.";
+    if (column === "L") return "État de l'assainissement.";
+    if (column === "M") return "Largeur minimale des trottoirs en mètres.";
+    if (column === "N") return "Valeur de stationnement du côté gauche.";
+    if (column === "O") return "Valeur de stationnement du côté droit.";
+    if (column === "P") return "Autre information utile sur le stationnement.";
+  }
+  if (sheetName === "Feuil6") {
+    if (column === "A") return "Numéro d'ordre de la ligne dans le répertoire.";
+    if (column === "B") return "Choisissez le type de voie : Rue, Boulevard ou Avenue.";
+    if (column === "C") return "Code court de la voie.";
+    if (column === "D") return "Longueur totale en mètres.";
+    if (column === "E") return "Nom proposé pour cette voie.";
+    if (column === "F") return "Écrivez l'itinéraire sous la forme de ... à ...";
+    if (column === "G") return "Expliquez simplement pourquoi ce nom a été choisi.";
+  }
+  if (sheetName === "Feuil4") {
+    if (column === "A") return "Nom de l'information affichée dans le programme d'évaluation.";
+    if (column === "B") return "Valeur à afficher ou à utiliser pour cette ligne.";
+    if (column === "C") return "Résultat de l'évaluation de l'état de la chaussée.";
+    if (column === "D") return "Travaux ou entretien recommandés.";
+    if (column === "E") return "Zone de contrôle ou zone d'observation.";
+    if (column === "F") return "Résultat calculé ou indicateur simple, par exemple VRAI ou FAUX.";
+  }
+  if (sheetName === "Feuil7") {
+    if (column === "A") return "Grande catégorie de la dégradation.";
+    if (column === "B") return "Code ou référence courte de la dégradation.";
+    if (column === "C") return "Nom de la dégradation observée.";
+    if (column === "D") return "Famille principale de la dégradation.";
+    if (column === "E") return "Sous-famille ou précision complémentaire.";
+    if (column === "F") return "Observation utile pour mieux comprendre cette dégradation.";
+    if (column === "G") return "Cause probable de cette dégradation.";
+  }
+  return "";
+}
+
+function getRequiredSheetColumns(sheetName: string | undefined): SheetColumnKey[] {
+  if (sheetName === "Feuil2") {
+    return ["A", "B", "C", "D", "E", "F", "G"];
+  }
+  if (sheetName === "Feuil3") {
+    return ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "L"];
+  }
+  if (sheetName === "Feuil5") {
+    return ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M"];
+  }
+  if (sheetName === "Feuil6") {
+    return ["B", "C", "D", "E", "F", "G"];
+  }
+  if (sheetName === "Feuil7") {
+    return ["A", "B", "C", "G"];
+  }
+  if (sheetName === "Feuil4") {
+    return ["A"];
+  }
+  return [];
+}
+
+function isSheetFieldRequired(sheetName: string | undefined, column: SheetColumnKey) {
+  return getRequiredSheetColumns(sheetName).includes(column);
+}
+
+function getSheetFieldRequiredMessage(sheetName: string | undefined, column: SheetColumnKey) {
+  if (sheetName === "Feuil2") {
+    if (column === "A") return "Veuillez renseigner le numéro du tronçon.";
+    if (column === "B") return "Veuillez renseigner le numéro de section.";
+    if (column === "C") return "Veuillez renseigner le code de la voie.";
+    if (column === "D") return "Veuillez renseigner le nom de la voie.";
+    if (column === "E") return "Veuillez renseigner le lieu de départ.";
+    if (column === "F") return "Veuillez renseigner le lieu d'arrivée.";
+    if (column === "G") return "Veuillez renseigner la longueur en mètres.";
+  }
+  if (sheetName === "Feuil3") {
+    if (column === "A") return "Veuillez renseigner le code de la voie.";
+    if (column === "B") return "Veuillez renseigner le nom de la voie.";
+    if (column === "C") return "Veuillez renseigner le lieu de départ.";
+    if (column === "D") return "Veuillez renseigner le lieu d'arrivée.";
+    if (column === "E") return "Veuillez renseigner la longueur en mètres.";
+    if (column === "F") return "Veuillez renseigner la largeur minimale côté façade.";
+    if (column === "G") return "Veuillez renseigner le type de revêtement.";
+    if (column === "H") return "Veuillez renseigner l'état de la chaussée.";
+    if (column === "I") return "Veuillez renseigner le type de caniveaux.";
+    if (column === "J") return "Veuillez renseigner l'état de l'assainissement.";
+    if (column === "L") return "Veuillez renseigner l'intervention à prévoir.";
+  }
+  if (sheetName === "Feuil5") {
+    if (column === "A") return "Veuillez renseigner le numéro du tronçon.";
+    if (column === "B") return "Veuillez renseigner le numéro de section.";
+    if (column === "C") return "Veuillez renseigner le code de la voie.";
+    if (column === "D") return "Veuillez renseigner le nom de la voie.";
+    if (column === "E") return "Veuillez renseigner le lieu de départ.";
+    if (column === "F") return "Veuillez renseigner le lieu d'arrivée.";
+    if (column === "G") return "Veuillez renseigner la longueur en mètres.";
+    if (column === "H") return "Veuillez renseigner la largeur minimale côté façade.";
+    if (column === "I") return "Veuillez renseigner le type de revêtement.";
+    if (column === "J") return "Veuillez renseigner l'état de la chaussée.";
+    if (column === "K") return "Veuillez renseigner le type d'assainissement.";
+    if (column === "L") return "Veuillez renseigner l'état de l'assainissement.";
+    if (column === "M") return "Veuillez renseigner la largeur minimale des trottoirs.";
+  }
+  if (sheetName === "Feuil6") {
+    if (column === "B") return "Veuillez renseigner le type de voie.";
+    if (column === "C") return "Veuillez renseigner le code de la voie.";
+    if (column === "D") return "Veuillez renseigner le linéaire en mètres.";
+    if (column === "E") return "Veuillez renseigner le nom proposé.";
+    if (column === "F") return "Veuillez renseigner l'itinéraire.";
+    if (column === "G") return "Veuillez renseigner la justification.";
+  }
+  if (sheetName === "Feuil7") {
+    if (column === "A") return "Veuillez renseigner la catégorie.";
+    if (column === "B") return "Veuillez renseigner la référence.";
+    if (column === "C") return "Veuillez renseigner le nom de la dégradation.";
+    if (column === "G") return "Veuillez renseigner la cause probable.";
+  }
+  if (sheetName === "Feuil4") {
+    if (column === "A") return "Veuillez renseigner le nom de la ligne.";
+  }
+  return "Veuillez remplir ce champ.";
+}
+
+function setSheetFieldError(
+  errors: Partial<Record<SheetColumnKey, string>>,
+  column: SheetColumnKey,
+  message: string
+) {
+  if (!errors[column]) {
+    errors[column] = message;
+  }
+}
+
+function validateSheetDraft(
+  sheet: SheetDefinition | null,
+  cells: Partial<Record<SheetColumnKey, string>>
+) {
+  const fieldErrors: Partial<Record<SheetColumnKey, string>> = {};
+  let formError = "";
+
+  if (!sheet) {
+    return { fieldErrors, formError };
+  }
+
+  for (const column of getRequiredSheetColumns(sheet.name)) {
+    if (!String(cells[column] ?? "").trim()) {
+      setSheetFieldError(fieldErrors, column, getSheetFieldRequiredMessage(sheet.name, column));
+    }
+  }
+
+  if (sheet.name === "Feuil2") {
+    const tronconNo = String(cells.A ?? "").trim();
+    const sectionNo = String(cells.B ?? "").trim();
+    const lengthM = parseNumberValue(cells.G);
+    if (tronconNo && !/^[1-9][0-9]*$/.test(tronconNo)) {
+      setSheetFieldError(fieldErrors, "A", "Le numéro du tronçon doit être un nombre entier positif.");
+    }
+    if (sectionNo && !/^[1-9][0-9]*_[1-9][0-9]*$/.test(sectionNo)) {
+      setSheetFieldError(fieldErrors, "B", "Écrivez par exemple 1_1, 2_3 ou 6_1. Le nombre avant _ crée le groupe SAP.");
+    }
+    if (String(cells.G ?? "").trim() && (!Number.isFinite(lengthM) || Number(lengthM) <= 0)) {
+      setSheetFieldError(fieldErrors, "G", "La longueur doit être un nombre supérieur à 0.");
+    }
+  }
+
+  if (sheet.name === "Feuil3") {
+    const lengthM = parseNumberValue(cells.E);
+    const facadeWidthM = parseNumberValue(cells.F);
+    const sidewalkWidthM = parseNumberValue(cells.K);
+    if (String(cells.E ?? "").trim() && (!Number.isFinite(lengthM) || Number(lengthM) <= 0)) {
+      setSheetFieldError(fieldErrors, "E", "La longueur doit être un nombre supérieur à 0.");
+    }
+    if (String(cells.F ?? "").trim() && (!Number.isFinite(facadeWidthM) || Number(facadeWidthM) <= 0)) {
+      setSheetFieldError(fieldErrors, "F", "La largeur côté façade doit être un nombre supérieur à 0.");
+    }
+    if (String(cells.K ?? "").trim() && (!Number.isFinite(sidewalkWidthM) || Number(sidewalkWidthM) < 0)) {
+      setSheetFieldError(fieldErrors, "K", "La largeur des trottoirs doit être un nombre positif ou nul.");
+    }
+  }
+
+  if (sheet.name === "Feuil5") {
+    const tronconNo = String(cells.A ?? "").trim();
+    const sectionNo = String(cells.B ?? "").trim();
+    const numericColumns: Array<[SheetColumnKey, string, boolean]> = [
+      ["G", "La longueur doit être un nombre supérieur à 0.", true],
+      ["H", "La largeur côté façade doit être un nombre supérieur à 0.", true],
+      ["M", "La largeur des trottoirs doit être un nombre positif ou nul.", false],
+      ["N", "La valeur du stationnement à gauche doit être un nombre positif ou nul.", false],
+      ["O", "La valeur du stationnement à droite doit être un nombre positif ou nul.", false]
+    ];
+
+    if (tronconNo && !/^[1-9][0-9]*$/.test(tronconNo)) {
+      setSheetFieldError(fieldErrors, "A", "Le numéro du tronçon doit être un nombre entier positif.");
+    }
+    if (sectionNo && !/^[1-9][0-9]*_[1-9][0-9]*$/.test(sectionNo)) {
+      setSheetFieldError(fieldErrors, "B", "Écrivez par exemple 1_1, 2_3 ou 6_1.");
+    }
+
+    for (const [column, message, strictPositive] of numericColumns) {
+      const rawValue = String(cells[column] ?? "").trim();
+      const numericValue = parseNumberValue(cells[column]);
+      if (!rawValue) {
+        continue;
+      }
+      if (!Number.isFinite(numericValue) || (strictPositive ? Number(numericValue) <= 0 : Number(numericValue) < 0)) {
+        setSheetFieldError(fieldErrors, column, message);
+      }
+    }
+  }
+
+  if (sheet.name === "Feuil6") {
+    const linearM = parseNumberValue(cells.D);
+    if (String(cells.D ?? "").trim() && (!Number.isFinite(linearM) || Number(linearM) <= 0)) {
+      setSheetFieldError(fieldErrors, "D", "Le linéaire doit être un nombre supérieur à 0.");
+    }
+  }
+
+  if (sheet.name === "Feuil7") {
+    if (!String(cells.G ?? "").trim()) {
+      setSheetFieldError(fieldErrors, "G", "Veuillez expliquer la cause probable de cette dégradation.");
+    }
+  }
+
+  if (sheet.name === "Feuil4") {
+    const hasValue = ["B", "C", "D", "E", "F"].some((column) => String(cells[column as SheetColumnKey] ?? "").trim());
+    if (!hasValue) {
+      setSheetFieldError(fieldErrors, "B", "Veuillez remplir au moins une valeur utile sur cette ligne.");
+      formError = "Veuillez remplir au moins une valeur utile sur cette ligne.";
+    }
+  }
+
+  if (!formError && Object.keys(fieldErrors).length > 0) {
+    formError = Object.values(fieldErrors)[0] || "Veuillez corriger les champs obligatoires.";
+  }
+
+  return { fieldErrors, formError };
 }
 
 function toPayload(
@@ -198,6 +560,154 @@ function toDeflectionRecommendationLabel(value: unknown) {
     return text.replace(/REHABILITATION/gi, "RÉHABILITATION");
   }
   return text;
+}
+
+function formatMeasurementNumber(value: number | null | undefined) {
+  if (!Number.isFinite(value ?? null)) {
+    return "-";
+  }
+  return Number(value).toLocaleString("fr-FR");
+}
+
+function scrollPageTop() {
+  if (typeof window === "undefined") {
+    return;
+  }
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function parseNumberValue(value: unknown) {
+  const normalized = String(value ?? "").replace(/\s+/g, "").replace(",", ".");
+  const numeric = Number(normalized);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function normalizeRoadCompareKey(value: unknown) {
+  return String(value ?? "")
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/BOULEVARD/g, "BVD")
+    .replace(/AVENUE/g, "AV")
+    .replace(/[().,;:_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseFeuil2SapCode(row: SheetRow) {
+  const candidates = [row.I, row.H, row.B, row.A].map((value) => String(value ?? "").trim());
+  for (const candidate of candidates) {
+    const explicit = candidate.match(/SAP\s*([1-9][0-9]?)/i);
+    if (explicit) {
+      return `SAP${explicit[1]}`;
+    }
+    const sectionPrefix = candidate.match(/^([1-9][0-9]?)_/);
+    if (sectionPrefix) {
+      return `SAP${sectionPrefix[1]}`;
+    }
+  }
+  return "";
+}
+
+function parseFeuil6SapMarker(value: unknown) {
+  const text = String(value ?? "").trim();
+  const explicit = text.match(/SAP\s*([1-9][0-9]?)/i);
+  if (explicit) {
+    return `SAP${explicit[1]}`;
+  }
+  return "";
+}
+
+function resolveRoadFromFeuil2Row(row: SheetRow, roads: RoadCatalogItem[]) {
+  const codeKey = normalizeRoadCompareKey(row.C);
+  const designationKey = normalizeRoadCompareKey(row.D);
+  const startKey = normalizeRoadCompareKey(row.E);
+  const endKey = normalizeRoadCompareKey(row.F);
+  const sapKey = normalizeRoadCompareKey(parseFeuil2SapCode(row));
+
+  return (
+    roads.find((road) => {
+      const roadCode = normalizeRoadCompareKey(road.roadCode);
+      const roadDesignation = normalizeRoadCompareKey(road.designation);
+      const roadStart = normalizeRoadCompareKey(road.startLabel);
+      const roadEnd = normalizeRoadCompareKey(road.endLabel);
+      const roadSap = normalizeRoadCompareKey(road.sapCode);
+
+      if (codeKey && roadCode === codeKey) {
+        return true;
+      }
+
+      if (designationKey && roadDesignation === designationKey && (!sapKey || roadSap === sapKey)) {
+        return true;
+      }
+
+      return Boolean(
+        designationKey &&
+          startKey &&
+          endKey &&
+          roadDesignation === designationKey &&
+          roadStart === startKey &&
+          roadEnd === endKey
+      );
+    }) ?? null
+  );
+}
+
+function resolveRoadFromFeuil6Row(row: SheetRow, roads: RoadCatalogItem[]) {
+  const codeKey = normalizeRoadCompareKey(row.C);
+  const designationKey = normalizeRoadCompareKey(row.E);
+  const itineraryKey = normalizeRoadCompareKey(row.F);
+
+  return (
+    roads.find((road) => {
+      const roadCode = normalizeRoadCompareKey(road.roadCode);
+      const roadDesignation = normalizeRoadCompareKey(road.designation);
+      const roadItinerary = normalizeRoadCompareKey(
+        road.startLabel && road.endLabel ? `${road.startLabel} à ${road.endLabel}` : road.itinerary
+      );
+
+      if (codeKey && roadCode === codeKey) {
+        return true;
+      }
+      if (designationKey && roadDesignation === designationKey) {
+        return true;
+      }
+      return Boolean(itineraryKey && roadItinerary === itineraryKey);
+    }) ?? null
+  );
+}
+
+function resolveRoadFromFeuil3Row(row: SheetRow, roads: RoadCatalogItem[]) {
+  const codeKey = normalizeRoadCompareKey(row.A);
+  const designationKey = normalizeRoadCompareKey(row.B);
+  const startKey = normalizeRoadCompareKey(row.C);
+  const endKey = normalizeRoadCompareKey(row.D);
+
+  return (
+    roads.find((road) => {
+      const roadCode = normalizeRoadCompareKey(road.roadCode);
+      const roadDesignation = normalizeRoadCompareKey(road.designation);
+      const roadStart = normalizeRoadCompareKey(road.startLabel);
+      const roadEnd = normalizeRoadCompareKey(road.endLabel);
+
+      if (codeKey && roadCode === codeKey) {
+        return true;
+      }
+      if (designationKey && roadDesignation === designationKey && startKey && endKey) {
+        return roadStart === startKey && roadEnd === endKey;
+      }
+      if (designationKey && roadDesignation === designationKey) {
+        return true;
+      }
+      return false;
+    }) ?? null
+  );
+}
+
+function hasFeuil5ParkingValue(value: unknown) {
+  const normalized = normalizeLabel(value);
+  return Boolean(normalized && !["-", "0", "NON", "FAUX"].includes(normalized));
 }
 
 function formatAmount(value: number | null) {
@@ -321,12 +831,45 @@ export default function App() {
   const [importPath, setImportPath] = useState(DEFAULT_IMPORT_PATH);
   const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
   const [draftCells, setDraftCells] = useState<Partial<Record<SheetColumnKey, string>>>({});
+  const [draftFieldErrors, setDraftFieldErrors] = useState<Partial<Record<SheetColumnKey, string>>>({});
+  const [draftFormError, setDraftFormError] = useState("");
   const [editingRowId, setEditingRowId] = useState<number | null>(null);
 
   const [sapSectors, setSapSectors] = useState<SapSector[]>([]);
   const [allRoads, setAllRoads] = useState<RoadCatalogItem[]>([]);
   const [roads, setRoads] = useState<RoadCatalogItem[]>([]);
+  const [measurementCampaigns, setMeasurementCampaigns] = useState<MeasurementCampaignItem[]>([]);
+  const [measurementRows, setMeasurementRows] = useState<RoadMeasurementItem[]>([]);
+  const [selectedMeasurementCampaignKey, setSelectedMeasurementCampaignKey] = useState("");
+  const [isMeasurementCampaignModalOpen, setIsMeasurementCampaignModalOpen] = useState(false);
+  const [isMeasurementRowModalOpen, setIsMeasurementRowModalOpen] = useState(false);
+  const [editingMeasurementCampaignId, setEditingMeasurementCampaignId] = useState<number | null>(null);
+  const [measurementCampaignRoadId, setMeasurementCampaignRoadId] = useState<number | "">("");
+  const [measurementCampaignSectionLabel, setMeasurementCampaignSectionLabel] = useState("");
+  const [measurementCampaignStartLabel, setMeasurementCampaignStartLabel] = useState("");
+  const [measurementCampaignEndLabel, setMeasurementCampaignEndLabel] = useState("");
+  const [measurementCampaignDate, setMeasurementCampaignDate] = useState("");
+  const [measurementCampaignPkStartM, setMeasurementCampaignPkStartM] = useState("");
+  const [measurementCampaignPkEndM, setMeasurementCampaignPkEndM] = useState("");
+  const [measurementCampaignFieldErrors, setMeasurementCampaignFieldErrors] = useState<Record<string, string>>({});
+  const [editingMeasurementRowId, setEditingMeasurementRowId] = useState<number | null>(null);
+  const [measurementPkLabel, setMeasurementPkLabel] = useState("");
+  const [measurementPkM, setMeasurementPkM] = useState("");
+  const [measurementLectureLeft, setMeasurementLectureLeft] = useState("");
+  const [measurementLectureAxis, setMeasurementLectureAxis] = useState("");
+  const [measurementLectureRight, setMeasurementLectureRight] = useState("");
+  const [measurementDeflectionLeft, setMeasurementDeflectionLeft] = useState("");
+  const [measurementDeflectionAxis, setMeasurementDeflectionAxis] = useState("");
+  const [measurementDeflectionRight, setMeasurementDeflectionRight] = useState("");
+  const [measurementDeflectionAvg, setMeasurementDeflectionAvg] = useState("");
+  const [measurementStdDev, setMeasurementStdDev] = useState("");
+  const [measurementDeflectionDc, setMeasurementDeflectionDc] = useState("");
+  const [measurementRowFieldErrors, setMeasurementRowFieldErrors] = useState<Record<string, string>>({});
   const [degradations, setDegradations] = useState<DegradationItem[]>([]);
+  const [feuil2SapFilter, setFeuil2SapFilter] = useState("");
+  const [feuil3SapFilter, setFeuil3SapFilter] = useState("");
+  const [feuil5SapFilter, setFeuil5SapFilter] = useState("");
+  const [feuil6SapFilter, setFeuil6SapFilter] = useState("");
   const [selectedSap, setSelectedSap] = useState("");
   const [roadSearch, setRoadSearch] = useState("");
   const [selectedRoadId, setSelectedRoadId] = useState<number | "">("");
@@ -380,6 +923,8 @@ export default function App() {
   const [isBusy, setIsBusy] = useState(false);
   const [isLoadingRows, setIsLoadingRows] = useState(false);
   const [isDecisionBusy, setIsDecisionBusy] = useState(false);
+  const [isMeasurementLoading, setIsMeasurementLoading] = useState(false);
+  const [isMeasurementBusy, setIsMeasurementBusy] = useState(false);
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const [isMaintenanceLoading, setIsMaintenanceLoading] = useState(false);
   const [isMaintenanceBusy, setIsMaintenanceBusy] = useState(false);
@@ -397,6 +942,9 @@ export default function App() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const degradationEditorRef = useRef<HTMLDivElement | null>(null);
+  const sheetEditorRef = useRef<HTMLElement | null>(null);
+  const measurementCampaignEditorRef = useRef<HTMLDivElement | null>(null);
+  const measurementRowEditorRef = useRef<HTMLDivElement | null>(null);
 
   const activeSheetName = activeView.startsWith("sheet:") ? activeView.replace("sheet:", "") : "";
   const activeSheet = useMemo(
@@ -404,10 +952,21 @@ export default function App() {
     [definitions, activeSheetName]
   );
   const activeColumns = activeSheet?.columns ?? [];
+  const editableColumns = useMemo(() => getEditableColumns(activeSheet), [activeSheet]);
   const selectedRoad = useMemo(
     () => allRoads.find((road) => road.id === selectedRoadId) ?? null,
     [allRoads, selectedRoadId]
   );
+  const selectedMeasurementCampaign = useMemo(
+    () => measurementCampaigns.find((item) => item.campaignKey === selectedMeasurementCampaignKey) ?? null,
+    [measurementCampaigns, selectedMeasurementCampaignKey]
+  );
+  const decisionMeasurementCampaigns = useMemo(() => {
+    if (selectedRoadId === "") {
+      return measurementCampaigns;
+    }
+    return measurementCampaigns.filter((item) => item.roadId === selectedRoadId);
+  }, [measurementCampaigns, selectedRoadId]);
   const selectedDegradation = useMemo(
     () => degradations.find((item) => item.id === selectedDegradationId) ?? null,
     [degradations, selectedDegradationId]
@@ -460,6 +1019,276 @@ export default function App() {
       recommendation: decisionRecommendation || toDeflectionRecommendationLabel(fallback?.recommendation) || "-"
     } satisfies Feuil4Snapshot;
   }, [decisionResult, deflectionValue, feuil4Snapshot, selectedDegradation, selectedRoad]);
+  const feuil2Sections = useMemo(() => {
+    if (activeSheetName !== "Feuil2") {
+      return [];
+    }
+
+    return rows
+      .map((row) => {
+        const sapCode = parseFeuil2SapCode(row);
+        const lengthM = parseNumberValue(row.G);
+        return {
+          row,
+          sapCode,
+          tronconNo: String(row.A ?? "").trim(),
+          sectionNo: String(row.B ?? "").trim(),
+          roadLabel: String(row.C ?? "").trim(),
+          designation: String(row.D ?? "").trim(),
+          startLabel: String(row.E ?? "").trim(),
+          endLabel: String(row.F ?? "").trim(),
+          lengthM
+        };
+      })
+      .filter((item) => item.roadLabel || item.designation || item.sapCode);
+  }, [activeSheetName, rows]);
+  const feuil2SapOptions = useMemo(
+    () => [...new Set(feuil2Sections.map((item) => item.sapCode).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
+    [feuil2Sections]
+  );
+  const feuil2Groups = useMemo(() => {
+    const source = feuil2Sections.filter((item) => !feuil2SapFilter || item.sapCode === feuil2SapFilter);
+    const grouped = new Map<
+      string,
+      {
+        sapCode: string;
+        rows: typeof source;
+        totalLengthM: number;
+      }
+    >();
+
+    for (const item of source) {
+      const key = item.sapCode || "SAP?";
+      if (!grouped.has(key)) {
+        grouped.set(key, { sapCode: key, rows: [], totalLengthM: 0 });
+      }
+      const group = grouped.get(key)!;
+      group.rows.push(item);
+      group.totalLengthM += item.lengthM ?? 0;
+    }
+
+    return [...grouped.values()]
+      .sort((a, b) => a.sapCode.localeCompare(b.sapCode))
+      .map((group) => ({
+        ...group,
+        rows: group.rows.sort((left, right) => getDisplayRowNumber(left.row) - getDisplayRowNumber(right.row))
+      }));
+  }, [feuil2SapFilter, feuil2Sections]);
+  const feuil6DirectoryRows = useMemo(() => {
+    if (activeSheetName !== "Feuil6") {
+      return [];
+    }
+
+    const items: Array<{
+      row: SheetRow;
+      sapCode: string;
+      roadType: string;
+      roadCode: string;
+      linearM: number | null;
+      proposedName: string;
+      itinerary: string;
+      justification: string;
+      linkedRoad: RoadCatalogItem | null;
+    }> = [];
+
+    let currentSap = "";
+    for (const row of rows) {
+      const sapMarker =
+        parseFeuil6SapMarker(row.A) || parseFeuil6SapMarker(row.F) || parseFeuil6SapMarker(row.E) || currentSap;
+      if (sapMarker && sapMarker !== currentSap) {
+        currentSap = sapMarker;
+      }
+
+      const roadCode = String(row.C ?? "").trim();
+      const proposedName = String(row.E ?? "").trim();
+      if (!roadCode && !proposedName) {
+        continue;
+      }
+
+      items.push({
+        row,
+        sapCode: currentSap || "",
+        roadType: String(row.B ?? "").trim(),
+        roadCode,
+        linearM: parseNumberValue(row.D),
+        proposedName,
+        itinerary: String(row.F ?? "").trim(),
+        justification: String(row.G ?? "").trim(),
+        linkedRoad: resolveRoadFromFeuil6Row(row, allRoads)
+      });
+    }
+
+    return items;
+  }, [activeSheetName, allRoads, rows]);
+  const feuil6SapOptions = useMemo(
+    () => [...new Set(feuil6DirectoryRows.map((item) => item.sapCode).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
+    [feuil6DirectoryRows]
+  );
+  const feuil6Groups = useMemo(() => {
+    const source = feuil6DirectoryRows.filter((item) => !feuil6SapFilter || item.sapCode === feuil6SapFilter);
+    const grouped = new Map<
+      string,
+      {
+        sapCode: string;
+        rows: typeof source;
+        totalLinearM: number;
+      }
+    >();
+
+    for (const item of source) {
+      const key = item.sapCode || "SAP?";
+      if (!grouped.has(key)) {
+        grouped.set(key, { sapCode: key, rows: [], totalLinearM: 0 });
+      }
+      const group = grouped.get(key)!;
+      group.rows.push(item);
+      group.totalLinearM += item.linearM ?? 0;
+    }
+
+    return [...grouped.values()].sort((a, b) => a.sapCode.localeCompare(b.sapCode));
+  }, [feuil6DirectoryRows, feuil6SapFilter]);
+  const feuil6LinkedCount = useMemo(
+    () => feuil6DirectoryRows.filter((item) => item.linkedRoad).length,
+    [feuil6DirectoryRows]
+  );
+  const feuil3Profiles = useMemo(() => {
+    if (activeSheetName !== "Feuil3") {
+      return [];
+    }
+
+    return rows
+      .map((row) => {
+        const linkedRoad = resolveRoadFromFeuil3Row(row, allRoads);
+        return {
+          row,
+          linkedRoad,
+          sapCode: linkedRoad?.sapCode || "",
+          roadLabel: String(row.A ?? "").trim(),
+          designation: String(row.B ?? "").trim(),
+          startLabel: String(row.C ?? "").trim(),
+          endLabel: String(row.D ?? "").trim(),
+          lengthM: parseNumberValue(row.E),
+          facadeWidthM: parseNumberValue(row.F),
+          surfaceType: String(row.G ?? "").trim(),
+          pavementState: String(row.H ?? "").trim(),
+          drainageType: String(row.I ?? "").trim(),
+          drainageState: String(row.J ?? "").trim(),
+          sidewalkMinM: parseNumberValue(row.K),
+          interventionHint: String(row.L ?? "").trim()
+        };
+      })
+      .filter((item) => item.roadLabel || item.designation || item.surfaceType || item.interventionHint);
+  }, [activeSheetName, allRoads, rows]);
+  const feuil3SapOptions = useMemo(
+    () => [...new Set(feuil3Profiles.map((item) => item.sapCode).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
+    [feuil3Profiles]
+  );
+  const feuil3Groups = useMemo(() => {
+    const source = feuil3Profiles.filter((item) => !feuil3SapFilter || item.sapCode === feuil3SapFilter);
+    const grouped = new Map<
+      string,
+      {
+        sapCode: string;
+        rows: typeof source;
+      }
+    >();
+
+    for (const item of source) {
+      const key = item.sapCode || "SAP?";
+      if (!grouped.has(key)) {
+        grouped.set(key, { sapCode: key, rows: [] });
+      }
+      grouped.get(key)!.rows.push(item);
+    }
+
+    return [...grouped.values()].sort((a, b) => a.sapCode.localeCompare(b.sapCode));
+  }, [feuil3Profiles, feuil3SapFilter]);
+  const feuil3PendingInterventions = useMemo(
+    () => feuil3Profiles.filter((item) => isToDetermineIntervention(item.interventionHint)).length,
+    [feuil3Profiles]
+  );
+  const feuil3DrainageAlerts = useMemo(
+    () =>
+      feuil3Profiles.filter((item) => {
+        const normalized = normalizeLabel(item.drainageState);
+        return Boolean(normalized && !["-", "BON"].includes(normalized));
+      }).length,
+    [feuil3Profiles]
+  );
+  const feuil5Profiles = useMemo(() => {
+    if (activeSheetName !== "Feuil5") {
+      return [];
+    }
+
+    return rows
+      .map((row) => {
+        const linkedRoad = resolveRoadFromFeuil2Row(row, allRoads);
+        return {
+          row,
+          linkedRoad,
+          sapCode: linkedRoad?.sapCode || parseFeuil2SapCode(row) || "",
+          tronconNo: String(row.A ?? "").trim(),
+          sectionNo: String(row.B ?? "").trim(),
+          roadLabel: String(row.C ?? "").trim(),
+          designation: String(row.D ?? "").trim(),
+          startLabel: String(row.E ?? "").trim(),
+          endLabel: String(row.F ?? "").trim(),
+          lengthM: parseNumberValue(row.G),
+          facadeWidthM: parseNumberValue(row.H),
+          surfaceType: String(row.I ?? "").trim(),
+          pavementState: String(row.J ?? "").trim(),
+          drainageType: String(row.K ?? "").trim(),
+          drainageState: String(row.L ?? "").trim(),
+          sidewalkMinM: parseNumberValue(row.M),
+          parkingLeft: String(row.N ?? "").trim(),
+          parkingRight: String(row.O ?? "").trim(),
+          parkingOther: String(row.P ?? "").trim()
+        };
+      })
+      .filter((item) => item.roadLabel || item.designation || item.surfaceType || item.drainageState);
+  }, [activeSheetName, allRoads, rows]);
+  const feuil5SapOptions = useMemo(
+    () => [...new Set(feuil5Profiles.map((item) => item.sapCode).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
+    [feuil5Profiles]
+  );
+  const feuil5Groups = useMemo(() => {
+    const source = feuil5Profiles.filter((item) => !feuil5SapFilter || item.sapCode === feuil5SapFilter);
+    const grouped = new Map<
+      string,
+      {
+        sapCode: string;
+        rows: typeof source;
+      }
+    >();
+
+    for (const item of source) {
+      const key = item.sapCode || "SAP?";
+      if (!grouped.has(key)) {
+        grouped.set(key, { sapCode: key, rows: [] });
+      }
+      grouped.get(key)!.rows.push(item);
+    }
+
+    return [...grouped.values()].sort((a, b) => a.sapCode.localeCompare(b.sapCode));
+  }, [feuil5Profiles, feuil5SapFilter]);
+  const feuil5ParkingCount = useMemo(
+    () =>
+      feuil5Profiles.filter(
+        (item) =>
+          hasFeuil5ParkingValue(item.parkingLeft) ||
+          hasFeuil5ParkingValue(item.parkingRight) ||
+          hasFeuil5ParkingValue(item.parkingOther)
+      ).length,
+    [feuil5Profiles]
+  );
+  const feuil5DrainageWatchCount = useMemo(
+    () =>
+      feuil5Profiles.filter((item) => {
+        const normalized = normalizeLabel(item.drainageState);
+        return Boolean(normalized && !["-", "BON"].includes(normalized));
+      }).length,
+    [feuil5Profiles]
+  );
 
   const refreshStatus = useCallback(async () => {
     const nextStatus = await padApi.getDataStatus();
@@ -496,6 +1325,41 @@ export default function App() {
   const loadAllRoads = useCallback(async () => {
     const roadList = await padApi.listRoads();
     setAllRoads(roadList);
+  }, []);
+
+  const loadMeasurementCampaigns = useCallback(async () => {
+    setIsMeasurementLoading(true);
+    try {
+      const items = await padApi.listMeasurementCampaigns({ limit: 500 });
+      setMeasurementCampaigns(items);
+      setError("");
+    } catch (err) {
+      setError(toErrorMessage(err));
+    } finally {
+      setIsMeasurementLoading(false);
+    }
+  }, []);
+
+  const loadMeasurementRows = useCallback(async (campaignKey?: string) => {
+    const targetKey = String(campaignKey || "").trim();
+    if (!targetKey) {
+      setMeasurementRows([]);
+      return;
+    }
+
+    setIsMeasurementLoading(true);
+    try {
+      const items = await padApi.listRoadMeasurements({
+        campaignKey: targetKey,
+        limit: 5000
+      });
+      setMeasurementRows(items);
+      setError("");
+    } catch (err) {
+      setError(toErrorMessage(err));
+    } finally {
+      setIsMeasurementLoading(false);
+    }
   }, []);
 
   const loadRows = useCallback(async () => {
@@ -602,8 +1466,453 @@ export default function App() {
 
   const resetDraft = useCallback(() => {
     setEditingRowId(null);
-    setDraftCells(createEmptyCells(activeColumns));
-  }, [activeColumns]);
+    setDraftCells(createEmptyCells(editableColumns));
+    setDraftFieldErrors({});
+    setDraftFormError("");
+  }, [editableColumns]);
+
+  const clearDraftFieldError = useCallback((column: SheetColumnKey) => {
+    setDraftFieldErrors((prev) => {
+      if (!prev[column]) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete next[column];
+      return next;
+    });
+    setDraftFormError("");
+  }, []);
+
+  const buildDraftRow = useCallback(
+    (cells: Partial<Record<SheetColumnKey, string>>) =>
+      ({
+        id: editingRowId ?? 0,
+        rowNo: 0,
+        ...cells
+      }) as SheetRow,
+    [editingRowId]
+  );
+
+  const resolveDraftRoadMatch = useCallback(
+    (sheetName: string | undefined, cells: Partial<Record<SheetColumnKey, string>>) => {
+      const draftRow = buildDraftRow(cells);
+      if (sheetName === "Feuil2" || sheetName === "Feuil5") {
+        return resolveRoadFromFeuil2Row(draftRow, allRoads);
+      }
+      if (sheetName === "Feuil3") {
+        return resolveRoadFromFeuil3Row(draftRow, allRoads);
+      }
+      if (sheetName === "Feuil6") {
+        return resolveRoadFromFeuil6Row(draftRow, allRoads);
+      }
+      return null;
+    },
+    [allRoads, buildDraftRow]
+  );
+
+  const inferRoadType = useCallback((roadCode: string) => {
+    const normalized = normalizeRoadCompareKey(roadCode);
+    if (normalized.startsWith("BVD") || normalized.startsWith("BOULEVARD")) {
+      return "Boulevard";
+    }
+    if (normalized.startsWith("AV") || normalized.startsWith("AVENUE")) {
+      return "Avenue";
+    }
+    if (normalized.startsWith("RUE")) {
+      return "Rue";
+    }
+    return "";
+  }, []);
+
+  const suggestSectionForSap = useCallback(
+    (sapCode: string) => {
+      const sapNumber = String(sapCode ?? "").match(/([0-9]+)/)?.[1] || "";
+      if (!sapNumber) {
+        return { tronconNo: "", sectionNo: "" };
+      }
+      const prefix = `${sapNumber}_`;
+      const currentIndexes = rows
+        .map((row) => String(row.B ?? "").trim())
+        .filter((value) => value.startsWith(prefix))
+        .map((value) => Number(value.split("_")[1] || 0))
+        .filter((value) => Number.isFinite(value) && value > 0);
+      const nextIndex = currentIndexes.length > 0 ? Math.max(...currentIndexes) + 1 : 1;
+      return {
+        tronconNo: sapNumber,
+        sectionNo: `${sapNumber}_${nextIndex}`
+      };
+    },
+    [rows]
+  );
+
+  const autofillDraftFromRoad = useCallback(
+    (
+      sheetName: string | undefined,
+      cells: Partial<Record<SheetColumnKey, string>>,
+      road: RoadCatalogItem
+    ): Partial<Record<SheetColumnKey, string>> => {
+      const next = { ...cells };
+
+      if (sheetName === "Feuil2") {
+        next.C = road.roadCode;
+        next.D = road.designation;
+        next.E = road.startLabel || next.E || "";
+        next.F = road.endLabel || next.F || "";
+        next.G = road.lengthM !== null && road.lengthM !== undefined ? String(road.lengthM) : next.G || "";
+
+        const existingRow = rows.find((row) => {
+          if (editingRowId && row.id === editingRowId) {
+            return false;
+          }
+          const rowRoad = resolveRoadFromFeuil2Row(row, allRoads);
+          return rowRoad?.id === road.id;
+        });
+
+        if (existingRow) {
+          next.A = String(existingRow.A ?? "");
+          next.B = String(existingRow.B ?? "");
+        } else {
+          const suggestion = suggestSectionForSap(road.sapCode);
+          next.A = next.A || suggestion.tronconNo;
+          next.B = next.B || suggestion.sectionNo;
+        }
+      }
+
+      if (sheetName === "Feuil5") {
+        next.C = road.roadCode;
+        next.D = road.designation;
+        next.E = road.startLabel || next.E || "";
+        next.F = road.endLabel || next.F || "";
+        next.G = road.lengthM !== null && road.lengthM !== undefined ? String(road.lengthM) : next.G || "";
+        next.H = road.widthM !== null && road.widthM !== undefined ? String(road.widthM) : next.H || "";
+        next.I = road.surfaceType || next.I || "";
+        next.J = road.pavementState || next.J || "";
+        next.K = road.drainageType || next.K || "";
+        next.L = road.drainageState || next.L || "";
+        next.M = road.sidewalkMinM !== null && road.sidewalkMinM !== undefined ? String(road.sidewalkMinM) : next.M || "";
+        next.N = road.parkingLeft || next.N || "";
+        next.O = road.parkingRight || next.O || "";
+        next.P = road.parkingOther || next.P || "";
+
+        const existingRow = rows.find((row) => {
+          if (editingRowId && row.id === editingRowId) {
+            return false;
+          }
+          const rowRoad = resolveRoadFromFeuil2Row(row, allRoads);
+          return rowRoad?.id === road.id;
+        });
+
+        if (existingRow) {
+          next.A = String(existingRow.A ?? "");
+          next.B = String(existingRow.B ?? "");
+        } else {
+          const suggestion = suggestSectionForSap(road.sapCode);
+          next.A = next.A || suggestion.tronconNo;
+          next.B = next.B || suggestion.sectionNo;
+        }
+      }
+
+      if (sheetName === "Feuil3") {
+        next.A = road.roadCode;
+        next.B = road.designation;
+        next.C = road.startLabel || next.C || "";
+        next.D = road.endLabel || next.D || "";
+        next.E = road.lengthM !== null && road.lengthM !== undefined ? String(road.lengthM) : next.E || "";
+        next.F = road.widthM !== null && road.widthM !== undefined ? String(road.widthM) : next.F || "";
+        next.G = road.surfaceType || next.G || "";
+        next.H = road.pavementState || next.H || "";
+        next.I = road.drainageType || next.I || "";
+        next.J = road.drainageState || next.J || "";
+        next.K = road.sidewalkMinM !== null && road.sidewalkMinM !== undefined ? String(road.sidewalkMinM) : next.K || "";
+        next.L = road.interventionHint || next.L || "";
+      }
+
+      if (sheetName === "Feuil6") {
+        next.B = inferRoadType(road.roadCode) || next.B || "";
+        next.C = road.roadCode;
+        next.D = road.lengthM !== null && road.lengthM !== undefined ? String(road.lengthM) : next.D || "";
+        next.E = road.designation;
+        next.F = road.itinerary || (road.startLabel && road.endLabel ? `${road.startLabel} à ${road.endLabel}` : next.F || "");
+        next.G = road.justification || next.G || "";
+      }
+
+      return next;
+    },
+    [allRoads, editingRowId, inferRoadType, rows, suggestSectionForSap]
+  );
+
+  const validateDraftDuplicates = useCallback(
+    (
+      sheetName: string | undefined,
+      cells: Partial<Record<SheetColumnKey, string>>
+    ): { fieldErrors: Partial<Record<SheetColumnKey, string>>; formError: string } => {
+      const fieldErrors: Partial<Record<SheetColumnKey, string>> = {};
+      const comparableRows = rows.filter((row) => !editingRowId || row.id !== editingRowId);
+      const draftRoad =
+        sheetName === "Feuil2" || sheetName === "Feuil5" || sheetName === "Feuil3" || sheetName === "Feuil6"
+          ? resolveDraftRoadMatch(sheetName, cells)
+          : null;
+
+      if (sheetName === "Feuil2" || sheetName === "Feuil5") {
+        const sectionNo = normalizeLabel(cells.B);
+        const startKey = normalizeLabel(cells.E);
+        const endKey = normalizeLabel(cells.F);
+        const duplicate = comparableRows.find((row) => {
+          const rowRoad = resolveRoadFromFeuil2Row(row, allRoads);
+          const sameRoad = draftRoad ? rowRoad?.id === draftRoad.id : normalizeRoadCompareKey(row.C) === normalizeRoadCompareKey(cells.C);
+          if (!sameRoad) {
+            return false;
+          }
+          if (sectionNo && normalizeLabel(row.B) === sectionNo) {
+            return true;
+          }
+          return Boolean(startKey && endKey && normalizeLabel(row.E) === startKey && normalizeLabel(row.F) === endKey);
+        });
+
+        if (duplicate) {
+          fieldErrors.B = `Cette section existe déjà pour cette voie (${toDisplay(duplicate.B)}).`;
+          return { fieldErrors, formError: fieldErrors.B };
+        }
+      }
+
+      if (sheetName === "Feuil3") {
+        const duplicate = comparableRows.find((row) => {
+          const rowRoad = resolveRoadFromFeuil3Row(row, allRoads);
+          if (draftRoad) {
+            return rowRoad?.id === draftRoad.id;
+          }
+          return normalizeRoadCompareKey(row.A) === normalizeRoadCompareKey(cells.A) || normalizeRoadCompareKey(row.B) === normalizeRoadCompareKey(cells.B);
+        });
+
+        if (duplicate) {
+          fieldErrors.A = `Cette voie possède déjà un profil dans cette feuille (${toDisplay(duplicate.A)}).`;
+          return { fieldErrors, formError: fieldErrors.A };
+        }
+      }
+
+      if (sheetName === "Feuil6") {
+        const codeKey = normalizeRoadCompareKey(cells.C);
+        const duplicate = comparableRows.find((row) => codeKey && normalizeRoadCompareKey(row.C) === codeKey);
+        if (duplicate) {
+          fieldErrors.C = `Ce code de voie existe déjà dans le répertoire (${toDisplay(duplicate.C)}).`;
+          return { fieldErrors, formError: fieldErrors.C };
+        }
+      }
+
+      if (sheetName === "Feuil7") {
+        const referenceKey = normalizeLabel(cells.B);
+        const degradationKey = normalizeRoadCompareKey(cells.C);
+        const duplicate = comparableRows.find(
+          (row) =>
+            (referenceKey && normalizeLabel(row.B) === referenceKey) ||
+            (degradationKey && normalizeRoadCompareKey(row.C) === degradationKey)
+        );
+        if (duplicate) {
+          if (referenceKey && normalizeLabel(duplicate.B) === referenceKey) {
+            fieldErrors.B = `Cette référence existe déjà (${toDisplay(duplicate.B)}).`;
+            return { fieldErrors, formError: fieldErrors.B };
+          }
+          fieldErrors.C = `Cette dégradation existe déjà (${toDisplay(duplicate.C)}).`;
+          return { fieldErrors, formError: fieldErrors.C };
+        }
+      }
+
+      if (sheetName === "Feuil4") {
+        const labelKey = normalizeRoadCompareKey(cells.A);
+        const duplicate = comparableRows.find((row) => labelKey && normalizeRoadCompareKey(row.A) === labelKey);
+        if (duplicate) {
+          fieldErrors.A = `Cette ligne existe déjà dans le programme d'évaluation (${toDisplay(duplicate.A)}).`;
+          return { fieldErrors, formError: fieldErrors.A };
+        }
+      }
+
+      return { fieldErrors, formError: "" };
+    },
+    [allRoads, editingRowId, resolveDraftRoadMatch, rows]
+  );
+
+  const handleDraftCellChange = useCallback(
+    (column: SheetColumnKey, value: string) => {
+      clearDraftFieldError(column);
+      setDraftFormError("");
+      setDraftCells((prev) => {
+        let next = {
+          ...prev,
+          [column]: value
+        };
+
+        const isRoadSelectorField =
+          (activeSheetName === "Feuil2" && (column === "C" || column === "D")) ||
+          (activeSheetName === "Feuil3" && (column === "A" || column === "B")) ||
+          (activeSheetName === "Feuil5" && (column === "C" || column === "D")) ||
+          (activeSheetName === "Feuil6" && (column === "C" || column === "E"));
+
+        if (isRoadSelectorField) {
+          const matchedRoad = resolveDraftRoadMatch(activeSheetName, next);
+          if (matchedRoad) {
+            next = autofillDraftFromRoad(activeSheetName, next, matchedRoad);
+          }
+        }
+
+        return next;
+      });
+    },
+    [activeSheetName, autofillDraftFromRoad, clearDraftFieldError, resolveDraftRoadMatch]
+  );
+
+  useEffect(() => {
+    setDraftFieldErrors({});
+    setDraftFormError("");
+  }, [activeSheetName]);
+
+  const resetMeasurementCampaignForm = useCallback(
+    (roadId?: number | "") => {
+      setEditingMeasurementCampaignId(null);
+      setMeasurementCampaignFieldErrors({});
+      setMeasurementCampaignRoadId(
+        roadId === "" || (Number.isFinite(Number(roadId)) && Number(roadId) > 0) ? roadId ?? "" : ""
+      );
+      setMeasurementCampaignSectionLabel("");
+      setMeasurementCampaignStartLabel("");
+      setMeasurementCampaignEndLabel("");
+      setMeasurementCampaignDate("");
+      setMeasurementCampaignPkStartM("");
+      setMeasurementCampaignPkEndM("");
+    },
+    []
+  );
+
+  const resetMeasurementRowForm = useCallback(() => {
+    setEditingMeasurementRowId(null);
+    setMeasurementRowFieldErrors({});
+    setMeasurementPkLabel("");
+    setMeasurementPkM("");
+    setMeasurementLectureLeft("");
+    setMeasurementLectureAxis("");
+    setMeasurementLectureRight("");
+    setMeasurementDeflectionLeft("");
+    setMeasurementDeflectionAxis("");
+    setMeasurementDeflectionRight("");
+    setMeasurementDeflectionAvg("");
+    setMeasurementStdDev("");
+    setMeasurementDeflectionDc("");
+  }, []);
+
+  const clearMeasurementCampaignFieldError = useCallback((field: string) => {
+    setMeasurementCampaignFieldErrors((current) => {
+      if (!current[field]) {
+        return current;
+      }
+      const next = { ...current };
+      delete next[field];
+      return next;
+    });
+  }, []);
+
+  const clearMeasurementRowFieldError = useCallback((field: string) => {
+    setMeasurementRowFieldErrors((current) => {
+      if (!current[field]) {
+        return current;
+      }
+      const next = { ...current };
+      delete next[field];
+      return next;
+    });
+  }, []);
+
+  const validateMeasurementCampaignForm = useCallback(() => {
+    const nextErrors: Record<string, string> = {};
+    const roadId = Number(measurementCampaignRoadId);
+    const pkStart = measurementCampaignPkStartM === "" ? null : Number(measurementCampaignPkStartM);
+    const pkEnd = measurementCampaignPkEndM === "" ? null : Number(measurementCampaignPkEndM);
+
+    if (!Number.isFinite(roadId) || roadId <= 0) {
+      nextErrors.roadId = "Veuillez choisir la voie concernée.";
+    }
+    if (!measurementCampaignSectionLabel.trim()) {
+      nextErrors.sectionLabel = "Veuillez renseigner le nom du tronçon.";
+    }
+    if (!measurementCampaignStartLabel.trim()) {
+      nextErrors.startLabel = "Veuillez renseigner le point de départ.";
+    }
+    if (!measurementCampaignEndLabel.trim()) {
+      nextErrors.endLabel = "Veuillez renseigner le point d'arrivée.";
+    }
+    if (!measurementCampaignDate.trim()) {
+      nextErrors.measurementDate = "Veuillez renseigner la date de mesure.";
+    }
+    if ((pkStart === null) !== (pkEnd === null)) {
+      if (pkStart === null) {
+        nextErrors.pkStartM = "Veuillez renseigner le PK début.";
+      }
+      if (pkEnd === null) {
+        nextErrors.pkEndM = "Veuillez renseigner le PK fin.";
+      }
+    }
+    if (pkStart !== null && !Number.isFinite(pkStart)) {
+      nextErrors.pkStartM = "Veuillez saisir un nombre valide pour le PK début.";
+    }
+    if (pkEnd !== null && !Number.isFinite(pkEnd)) {
+      nextErrors.pkEndM = "Veuillez saisir un nombre valide pour le PK fin.";
+    }
+    if (pkStart !== null && pkEnd !== null && Number.isFinite(pkStart) && Number.isFinite(pkEnd) && pkStart > pkEnd) {
+      nextErrors.pkEndM = "Le PK fin doit être supérieur ou égal au PK début.";
+    }
+
+    setMeasurementCampaignFieldErrors(nextErrors);
+    return nextErrors;
+  }, [
+    measurementCampaignDate,
+    measurementCampaignEndLabel,
+    measurementCampaignPkEndM,
+    measurementCampaignPkStartM,
+    measurementCampaignRoadId,
+    measurementCampaignSectionLabel,
+    measurementCampaignStartLabel
+  ]);
+
+  const validateMeasurementRowForm = useCallback(() => {
+    const nextErrors: Record<string, string> = {};
+    const pkMeters = measurementPkM === "" ? null : Number(measurementPkM);
+    const hasValue = [
+      measurementLectureLeft,
+      measurementLectureAxis,
+      measurementLectureRight,
+      measurementDeflectionLeft,
+      measurementDeflectionAxis,
+      measurementDeflectionRight,
+      measurementDeflectionAvg,
+      measurementStdDev,
+      measurementDeflectionDc
+    ].some((value) => String(value).trim() !== "");
+
+    if (!measurementPkLabel.trim()) {
+      nextErrors.pkLabel = "Veuillez renseigner le PK affiché.";
+    }
+    if (measurementPkM === "") {
+      nextErrors.pkM = "Veuillez renseigner le PK en mètres.";
+    } else if (!Number.isFinite(pkMeters)) {
+      nextErrors.pkM = "Veuillez saisir un nombre valide pour le PK en mètres.";
+    }
+    if (!hasValue) {
+      nextErrors.values = "Veuillez renseigner au moins une valeur de mesure.";
+    }
+
+    setMeasurementRowFieldErrors(nextErrors);
+    return nextErrors;
+  }, [
+    measurementDeflectionAvg,
+    measurementDeflectionAxis,
+    measurementDeflectionDc,
+    measurementDeflectionLeft,
+    measurementDeflectionRight,
+    measurementLectureAxis,
+    measurementLectureLeft,
+    measurementLectureRight,
+    measurementPkLabel,
+    measurementPkM,
+    measurementStdDev
+  ]);
 
   const resetMaintenanceForm = useCallback(() => {
     setEditingMaintenanceId(null);
@@ -643,6 +1952,7 @@ export default function App() {
           refreshDecisionCatalogs(),
           loadAllRoads(),
           loadRoads(),
+          loadMeasurementCampaigns(),
           loadHistory(),
           loadMaintenanceRows(),
           loadFeuil4Snapshot(),
@@ -681,6 +1991,7 @@ export default function App() {
     loadHistory,
     loadIntegrityReport,
     loadMaintenanceRows,
+    loadMeasurementCampaigns,
     loadRoads,
     loadSolutionTemplates,
     refreshDecisionCatalogs,
@@ -693,6 +2004,66 @@ export default function App() {
     }
     loadRoads().catch((err) => setError(toErrorMessage(err)));
   }, [hasElectronBridge, loadRoads]);
+
+  useEffect(() => {
+    if (!hasElectronBridge) {
+      return;
+    }
+    loadMeasurementCampaigns().catch((err) => setError(toErrorMessage(err)));
+  }, [hasElectronBridge, loadMeasurementCampaigns]);
+
+  useEffect(() => {
+    if (isMeasurementBusy || isMeasurementLoading) {
+      return;
+    }
+    const availableCampaigns =
+      activeView === "decision"
+        ? selectedRoadId === ""
+          ? measurementCampaigns
+          : decisionMeasurementCampaigns
+        : measurementCampaigns;
+    if (availableCampaigns.length === 0) {
+      setSelectedMeasurementCampaignKey("");
+      setMeasurementRows([]);
+      return;
+    }
+
+    const stillAvailable = availableCampaigns.some((item) => item.campaignKey === selectedMeasurementCampaignKey);
+    if (!stillAvailable && activeView === "decision") {
+      setSelectedMeasurementCampaignKey(availableCampaigns[0].campaignKey);
+      return;
+    }
+    if (!stillAvailable && selectedMeasurementCampaignKey) {
+      setSelectedMeasurementCampaignKey("");
+    }
+  }, [activeView, decisionMeasurementCampaigns, isMeasurementBusy, isMeasurementLoading, measurementCampaigns, selectedMeasurementCampaignKey, selectedRoadId]);
+
+  useEffect(() => {
+    if (!hasElectronBridge) {
+      return;
+    }
+    loadMeasurementRows(selectedMeasurementCampaignKey).catch((err) => setError(toErrorMessage(err)));
+  }, [hasElectronBridge, loadMeasurementRows, selectedMeasurementCampaignKey]);
+
+  useEffect(() => {
+    if (!selectedMeasurementCampaign) {
+      resetMeasurementCampaignForm(selectedRoadId);
+      resetMeasurementRowForm();
+      return;
+    }
+
+    setEditingMeasurementCampaignId(selectedMeasurementCampaign.id);
+    setMeasurementCampaignRoadId(selectedMeasurementCampaign.roadId ?? "");
+    setMeasurementCampaignSectionLabel(selectedMeasurementCampaign.sectionLabel || "");
+    setMeasurementCampaignStartLabel(selectedMeasurementCampaign.startLabel || "");
+    setMeasurementCampaignEndLabel(selectedMeasurementCampaign.endLabel || "");
+    setMeasurementCampaignDate(selectedMeasurementCampaign.measurementDate || "");
+    setMeasurementCampaignPkStartM(
+      selectedMeasurementCampaign.pkStartM == null ? "" : String(selectedMeasurementCampaign.pkStartM)
+    );
+    setMeasurementCampaignPkEndM(selectedMeasurementCampaign.pkEndM == null ? "" : String(selectedMeasurementCampaign.pkEndM));
+    resetMeasurementRowForm();
+  }, [resetMeasurementCampaignForm, resetMeasurementRowForm, selectedMeasurementCampaign, selectedRoadId]);
 
   useEffect(() => {
     if (!hasElectronBridge) {
@@ -785,12 +2156,13 @@ export default function App() {
       activeView === "catalogue" ||
       activeView === "degradations" ||
       activeView === "maintenance" ||
-      activeView === "history"
+      activeView === "history" ||
+      activeSheetName === "Feuil1"
     ) {
       return;
     }
     loadRows();
-  }, [hasElectronBridge, activeView, loadRows]);
+  }, [hasElectronBridge, activeSheetName, activeView, loadRows]);
 
   async function handleImport() {
     setIsBusy(true);
@@ -803,13 +2175,14 @@ export default function App() {
         refreshDecisionCatalogs(),
         loadAllRoads(),
         loadRoads(),
+        loadMeasurementCampaigns(),
         loadHistory(),
         loadMaintenanceRows(),
         loadFeuil4Snapshot(),
         loadSolutionTemplates(),
         loadDrainageRules()
       ]);
-      if (activeView.startsWith("sheet:")) {
+      if (activeView.startsWith("sheet:") && activeSheetName !== "Feuil1") {
         await loadRows();
       }
       setNotice("Import Excel terminé.");
@@ -879,13 +2252,14 @@ export default function App() {
           refreshDecisionCatalogs(),
           loadAllRoads(),
           loadRoads(),
+          loadMeasurementCampaigns(),
           loadHistory(),
           loadMaintenanceRows(),
           loadFeuil4Snapshot(),
           loadSolutionTemplates(),
           loadDrainageRules()
         ]);
-        if (activeView.startsWith("sheet:")) {
+        if (activeView.startsWith("sheet:") && activeSheetName !== "Feuil1") {
           await loadRows();
         }
         setNotice("Sauvegarde restaurée.");
@@ -932,6 +2306,27 @@ export default function App() {
     window.print();
   }
 
+  function handlePrintActiveSheet() {
+    if (!activeSheet) {
+      return;
+    }
+    window.print();
+  }
+
+  function renderSheetPrintButton(sheetTitle?: string) {
+    return (
+      <button
+        className="row-action row-action--print row-action--icon row-action--icon-sm"
+        type="button"
+        onClick={handlePrintActiveSheet}
+        title={`Imprimer ${sheetTitle || "la feuille"}`}
+        aria-label={`Imprimer ${sheetTitle || "la feuille"}`}
+      >
+        <Printer size={15} aria-hidden="true" />
+      </button>
+    );
+  }
+
   async function handleRefresh() {
     setIsBusy(true);
     try {
@@ -942,13 +2337,14 @@ export default function App() {
         refreshDecisionCatalogs(),
         loadAllRoads(),
         loadRoads(),
+        loadMeasurementCampaigns(),
         loadHistory(),
         loadMaintenanceRows(),
         loadFeuil4Snapshot(),
         loadSolutionTemplates(),
         loadDrainageRules()
       ]);
-      if (activeView.startsWith("sheet:")) {
+      if (activeView.startsWith("sheet:") && activeSheetName !== "Feuil1") {
         await loadRows();
       }
       setError("");
@@ -963,10 +2359,12 @@ export default function App() {
   async function handleEvaluateDecision() {
     if (!selectedRoadId) {
       setError("Sélectionne une voie.");
+      scrollPageTop();
       return;
     }
     if (!selectedDegradationId) {
       setError("Sélectionne une dégradation.");
+      scrollPageTop();
       return;
     }
 
@@ -985,11 +2383,343 @@ export default function App() {
       await Promise.all([refreshStatus(), loadHistory(), loadDashboardSummary()]);
       setError("");
       setNotice("Décision calculée et enregistrée dans l'historique.");
+      scrollPageTop();
     } catch (err) {
       setError(toErrorMessage(err));
+      scrollPageTop();
     } finally {
       setIsDecisionBusy(false);
     }
+  }
+
+  function handleDecisionCampaignSelection(campaignKey: string) {
+    const normalizedKey = String(campaignKey || "").trim();
+    setSelectedMeasurementCampaignKey(normalizedKey);
+    setDecisionResult(null);
+    if (!normalizedKey) {
+      setMeasurementRows([]);
+      return;
+    }
+
+    const campaign = measurementCampaigns.find((item) => item.campaignKey === normalizedKey) ?? null;
+    if (campaign?.roadId) {
+      setSelectedRoadId(campaign.roadId);
+    }
+    setError("");
+  }
+
+  function handleUseMeasurementCampaign(campaign: MeasurementCampaignItem) {
+    if (campaign.roadId) {
+      setSelectedRoadId(campaign.roadId);
+    }
+    if (campaign.sapCode) {
+      setSelectedSap(campaign.sapCode);
+    }
+    setSelectedMeasurementCampaignKey(campaign.campaignKey);
+    setDecisionResult(null);
+    setActiveView("decision");
+    setNotice("Campagne Feuil1 chargée dans l'aide à la décision. Choisis une ligne PK pour injecter D.");
+    setError("");
+  }
+
+  function handleUseMeasurementInDecision(measurement: RoadMeasurementItem) {
+    if (measurement.roadId) {
+      setSelectedRoadId(measurement.roadId);
+    }
+    if (measurement.campaignKey) {
+      setSelectedMeasurementCampaignKey(measurement.campaignKey);
+    }
+    if (measurement.deflectionDc != null) {
+      setDeflectionValue(String(measurement.deflectionDc));
+    }
+    setDecisionResult(null);
+    setActiveView("decision");
+    setNotice(`Mesure PK ${measurement.pkLabel || "-"} injectée dans D pour l'analyse.`);
+    setError("");
+  }
+
+  function handleStartNewMeasurementCampaign() {
+    setSelectedMeasurementCampaignKey("");
+    setMeasurementRows([]);
+    resetMeasurementCampaignForm(selectedRoadId);
+    resetMeasurementRowForm();
+    setIsMeasurementCampaignModalOpen(true);
+    setIsMeasurementRowModalOpen(false);
+    setNotice("Préparation d'une nouvelle campagne de mesure.");
+    setError("");
+  }
+
+  function handleEditMeasurementCampaign() {
+    if (!selectedMeasurementCampaign) {
+      setError("Choisis d'abord une campagne à modifier.");
+      setNotice("");
+      return;
+    }
+    setMeasurementCampaignFieldErrors({});
+    setIsMeasurementCampaignModalOpen(true);
+    setIsMeasurementRowModalOpen(false);
+    setError("");
+  }
+
+  function handleEditMeasurementRow(measurement: RoadMeasurementItem) {
+    if (measurement.campaignKey && measurement.campaignKey !== selectedMeasurementCampaignKey) {
+      setSelectedMeasurementCampaignKey(measurement.campaignKey);
+    }
+    setEditingMeasurementRowId(measurement.id);
+    setMeasurementPkLabel(measurement.pkLabel || "");
+    setMeasurementPkM(measurement.pkM == null ? "" : String(measurement.pkM));
+    setMeasurementLectureLeft(measurement.lectureLeft == null ? "" : String(measurement.lectureLeft));
+    setMeasurementLectureAxis(measurement.lectureAxis == null ? "" : String(measurement.lectureAxis));
+    setMeasurementLectureRight(measurement.lectureRight == null ? "" : String(measurement.lectureRight));
+    setMeasurementDeflectionLeft(measurement.deflectionLeft == null ? "" : String(measurement.deflectionLeft));
+    setMeasurementDeflectionAxis(measurement.deflectionAxis == null ? "" : String(measurement.deflectionAxis));
+    setMeasurementDeflectionRight(measurement.deflectionRight == null ? "" : String(measurement.deflectionRight));
+    setMeasurementDeflectionAvg(measurement.deflectionAvg == null ? "" : String(measurement.deflectionAvg));
+    setMeasurementStdDev(measurement.stdDev == null ? "" : String(measurement.stdDev));
+    setMeasurementDeflectionDc(measurement.deflectionDc == null ? "" : String(measurement.deflectionDc));
+    setMeasurementRowFieldErrors({});
+    setIsMeasurementRowModalOpen(true);
+    setNotice(`Modification de la ligne PK ${measurement.pkLabel || "-"}.`);
+    setError("");
+  }
+
+  async function handleSaveMeasurementCampaign() {
+    const fieldErrors = validateMeasurementCampaignForm();
+    if (Object.keys(fieldErrors).length > 0) {
+      setError(Object.values(fieldErrors)[0] || "Veuillez corriger les champs obligatoires.");
+      setNotice("");
+      setIsMeasurementCampaignModalOpen(true);
+      return;
+    }
+    const roadId = Number(measurementCampaignRoadId);
+
+    setIsMeasurementBusy(true);
+    try {
+      const saved = await padApi.upsertMeasurementCampaign({
+        id: editingMeasurementCampaignId || undefined,
+        roadId,
+        sectionLabel: measurementCampaignSectionLabel,
+        startLabel: measurementCampaignStartLabel,
+        endLabel: measurementCampaignEndLabel,
+        measurementDate: measurementCampaignDate,
+        pkStartM: measurementCampaignPkStartM,
+        pkEndM: measurementCampaignPkEndM
+      });
+
+      if (!saved) {
+        throw new Error("Campagne de mesure non enregistrée.");
+      }
+
+      await Promise.all([refreshStatus(), loadDashboardSummary(), loadIntegrityReport(), loadMeasurementCampaigns()]);
+      setSelectedRoadId(roadId);
+      setSelectedMeasurementCampaignKey(saved.campaignKey);
+      await loadMeasurementRows(saved.campaignKey);
+      setIsMeasurementCampaignModalOpen(false);
+      setNotice(
+        `${editingMeasurementCampaignId ? "Campagne mise à jour." : "Campagne créée."} Sélectionne ou ajoute maintenant les lignes PK.`
+      );
+      setError("");
+    } catch (err) {
+      setError(toErrorMessage(err));
+      setNotice("");
+      setIsMeasurementCampaignModalOpen(true);
+    } finally {
+      setIsMeasurementBusy(false);
+    }
+  }
+
+  async function handleDeleteMeasurementCampaign() {
+    const campaign = selectedMeasurementCampaign;
+    if (!campaign) {
+      return;
+    }
+    if (!window.confirm("Supprimer cette campagne et toutes ses lignes PK ?")) {
+      return;
+    }
+
+    setIsMeasurementBusy(true);
+    try {
+      await padApi.deleteMeasurementCampaign(campaign.id);
+      await Promise.all([refreshStatus(), loadDashboardSummary(), loadIntegrityReport(), loadMeasurementCampaigns()]);
+      setSelectedMeasurementCampaignKey("");
+      setMeasurementRows([]);
+      resetMeasurementCampaignForm(selectedRoadId);
+      resetMeasurementRowForm();
+      setIsMeasurementCampaignModalOpen(false);
+      setIsMeasurementRowModalOpen(false);
+      setNotice("Campagne supprimée.");
+      setError("");
+    } catch (err) {
+      setError(toErrorMessage(err));
+      setNotice("");
+    } finally {
+      setIsMeasurementBusy(false);
+    }
+  }
+
+  function handleStartNewMeasurementRow() {
+    if (!selectedMeasurementCampaignKey) {
+      setError("Choisis ou crée d'abord une campagne de mesure.");
+      setNotice("");
+      return;
+    }
+    resetMeasurementRowForm();
+    setIsMeasurementRowModalOpen(true);
+    setNotice("Préparation d'une nouvelle ligne PK.");
+    setError("");
+  }
+
+  async function handleSaveMeasurementRow() {
+    if (!selectedMeasurementCampaignKey) {
+      setError("Choisis ou crée d'abord une campagne de mesure.");
+      setNotice("");
+      return;
+    }
+    const fieldErrors = validateMeasurementRowForm();
+    if (Object.keys(fieldErrors).length > 0) {
+      setError(Object.values(fieldErrors)[0] || "Veuillez corriger les champs obligatoires.");
+      setNotice("");
+      setIsMeasurementRowModalOpen(true);
+      return;
+    }
+
+    setIsMeasurementBusy(true);
+    try {
+      const saved = await padApi.upsertRoadMeasurement({
+        id: editingMeasurementRowId || undefined,
+        campaignKey: selectedMeasurementCampaignKey,
+        pkLabel: measurementPkLabel,
+        pkM: measurementPkM,
+        lectureLeft: measurementLectureLeft,
+        lectureAxis: measurementLectureAxis,
+        lectureRight: measurementLectureRight,
+        deflectionLeft: measurementDeflectionLeft,
+        deflectionAxis: measurementDeflectionAxis,
+        deflectionRight: measurementDeflectionRight,
+        deflectionAvg: measurementDeflectionAvg,
+        stdDev: measurementStdDev,
+        deflectionDc: measurementDeflectionDc
+      });
+
+      if (!saved) {
+        throw new Error("Ligne de mesure non enregistrée.");
+      }
+
+      await Promise.all([
+        refreshStatus(),
+        loadDashboardSummary(),
+        loadIntegrityReport(),
+        loadMeasurementCampaigns(),
+        loadMeasurementRows(selectedMeasurementCampaignKey)
+      ]);
+      resetMeasurementRowForm();
+      setIsMeasurementRowModalOpen(false);
+      setNotice(`${editingMeasurementRowId ? "Ligne PK mise à jour." : "Ligne PK ajoutée."}`);
+      setError("");
+    } catch (err) {
+      setError(toErrorMessage(err));
+      setNotice("");
+      setIsMeasurementRowModalOpen(true);
+    } finally {
+      setIsMeasurementBusy(false);
+    }
+  }
+
+  async function handleDeleteMeasurementRow(measurementId: number) {
+    if (!window.confirm("Supprimer cette ligne PK ?")) {
+      return;
+    }
+
+    setIsMeasurementBusy(true);
+    try {
+      await padApi.deleteRoadMeasurement(measurementId);
+      await Promise.all([
+        refreshStatus(),
+        loadDashboardSummary(),
+        loadIntegrityReport(),
+        loadMeasurementCampaigns(),
+        loadMeasurementRows(selectedMeasurementCampaignKey)
+      ]);
+      if (editingMeasurementRowId === measurementId) {
+        resetMeasurementRowForm();
+        setIsMeasurementRowModalOpen(false);
+      }
+      setNotice("Ligne PK supprimée.");
+      setError("");
+    } catch (err) {
+      setError(toErrorMessage(err));
+      setNotice("");
+    } finally {
+      setIsMeasurementBusy(false);
+    }
+  }
+
+  function handleUseFeuil2Section(row: SheetRow) {
+    const matchedRoad = resolveRoadFromFeuil2Row(row, allRoads);
+    if (!matchedRoad) {
+      setError("Aucune voie normalisée correspondante n'a été trouvée pour cette section.");
+      return;
+    }
+
+    setSelectedRoadId(matchedRoad.id);
+    if (matchedRoad.sapCode) {
+      setSelectedSap(matchedRoad.sapCode);
+    }
+    setDecisionResult(null);
+    setActiveView("decision");
+    setNotice(`Section ${toDisplay(row.C)} chargée dans l'aide à la décision.`);
+    setError("");
+  }
+
+  function handleUseFeuil6Road(row: SheetRow) {
+    const matchedRoad = resolveRoadFromFeuil6Row(row, allRoads);
+    if (!matchedRoad) {
+      setError("Aucune voie normalisée correspondante n'a été trouvée pour cette entrée du répertoire.");
+      return;
+    }
+
+    setSelectedRoadId(matchedRoad.id);
+    if (matchedRoad.sapCode) {
+      setSelectedSap(matchedRoad.sapCode);
+    }
+    setDecisionResult(null);
+    setActiveView("decision");
+    setNotice(`Voie ${matchedRoad.roadCode} chargée depuis le répertoire codifié.`);
+    setError("");
+  }
+
+  function handleUseFeuil3Profile(row: SheetRow) {
+    const matchedRoad = resolveRoadFromFeuil3Row(row, allRoads);
+    if (!matchedRoad) {
+      setError("Aucune voie normalisée correspondante n'a été trouvée pour ce profil technique.");
+      return;
+    }
+
+    setSelectedRoadId(matchedRoad.id);
+    if (matchedRoad.sapCode) {
+      setSelectedSap(matchedRoad.sapCode);
+    }
+    setDecisionResult(null);
+    setActiveView("decision");
+    setNotice(`Profil technique ${matchedRoad.roadCode} chargé dans l'aide à la décision.`);
+    setError("");
+  }
+
+  function handleUseFeuil5Profile(row: SheetRow) {
+    const matchedRoad = resolveRoadFromFeuil2Row(row, allRoads);
+    if (!matchedRoad) {
+      setError("Aucune voie normalisée correspondante n'a été trouvée pour ce profil complémentaire.");
+      return;
+    }
+
+    setSelectedRoadId(matchedRoad.id);
+    if (matchedRoad.sapCode) {
+      setSelectedSap(matchedRoad.sapCode);
+    }
+    setDecisionResult(null);
+    setActiveView("decision");
+    setNotice(`Profil complémentaire ${matchedRoad.roadCode} chargé dans l'aide à la décision.`);
+    setError("");
   }
 
   function handleEdit(row: SheetRow) {
@@ -997,15 +2727,25 @@ export default function App() {
       return;
     }
 
-    const nextCells = createEmptyCells(activeSheet.columns);
-    for (const column of activeSheet.columns) {
+    const nextCells = createEmptyCells(editableColumns);
+    for (const column of editableColumns) {
       nextCells[column] = String(row[column] ?? "");
     }
 
     setEditingRowId(row.id);
     setDraftCells(nextCells);
+    setDraftFieldErrors({});
+    setDraftFormError("");
     setNotice(`Édition de la ligne ${getDisplayRowNumber(row)}.`);
     setError("");
+    sheetEditorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function handleStartNewRow() {
+    resetDraft();
+    setNotice("Saisie d'une nouvelle ligne.");
+    setError("");
+    sheetEditorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   async function handleSaveRow() {
@@ -1013,26 +2753,73 @@ export default function App() {
       return;
     }
 
+    const draftValidation = validateSheetDraft(activeSheet, draftCells);
+    const duplicateValidation = validateDraftDuplicates(activeSheet.name, draftCells);
+    const mergedFieldErrors = {
+      ...draftValidation.fieldErrors,
+      ...duplicateValidation.fieldErrors
+    };
+    const draftError = draftValidation.formError || duplicateValidation.formError;
+
+    if (draftError) {
+      setDraftFieldErrors(mergedFieldErrors);
+      setDraftFormError(draftError);
+      setError(draftError);
+      setNotice("");
+      scrollPageTop();
+      return;
+    }
+
+    setDraftFieldErrors({});
+    setDraftFormError("");
     setIsBusy(true);
     try {
-      const payload = toPayload(activeSheet.columns, draftCells);
+      const payload = toPayload(editableColumns, draftCells);
+      const inferredSapCode =
+        activeSheet.name === "Feuil2"
+          ? parseFeuil2SapCode({
+              A: draftCells.A ?? "",
+              B: draftCells.B ?? "",
+              H: draftCells.H ?? "",
+              I: draftCells.I ?? ""
+            } as SheetRow)
+          : "";
+      const isNewSap = Boolean(
+        inferredSapCode && !sapSectors.some((item) => normalizeLabel(item.code) === normalizeLabel(inferredSapCode))
+      );
       if (editingRowId) {
         await padApi.updateSheetRow(activeSheet.name, editingRowId, payload);
         const currentRow = rows.find((row) => row.id === editingRowId);
-        setNotice(`Ligne ${currentRow ? getDisplayRowNumber(currentRow) : editingRowId} mise à jour.`);
+        setNotice(
+          `Ligne ${currentRow ? getDisplayRowNumber(currentRow) : editingRowId} mise à jour.${
+            isNewSap ? ` ${inferredSapCode} sera ajouté automatiquement à la liste des SAP.` : ""
+          }`
+        );
       } else {
         await padApi.createSheetRow(activeSheet.name, payload);
-        setNotice("Nouvelle ligne ajoutée.");
+        setNotice(`Nouvelle ligne ajoutée.${isNewSap ? ` ${inferredSapCode} sera ajouté automatiquement à la liste des SAP.` : ""}`);
       }
 
-      await Promise.all([refreshStatus(), loadRows(), loadDashboardSummary(), loadIntegrityReport()]);
+      await Promise.all([
+        refreshStatus(),
+        loadRows(),
+        loadDashboardSummary(),
+        loadIntegrityReport(),
+        refreshDecisionCatalogs(),
+        loadAllRoads(),
+        loadRoads(),
+        loadMeasurementCampaigns()
+      ]);
       if (activeSheet.name === "Feuil4") {
         await loadFeuil4Snapshot();
       }
       resetDraft();
       setError("");
     } catch (err) {
-      setError(toErrorMessage(err));
+      const message = toErrorMessage(err);
+      setDraftFormError(message);
+      setError(message);
+      scrollPageTop();
     } finally {
       setIsBusy(false);
     }
@@ -1056,7 +2843,16 @@ export default function App() {
     try {
       const row = rows.find((item) => item.id === id);
       await padApi.deleteSheetRow(activeSheet.name, id);
-      await Promise.all([refreshStatus(), loadRows(), loadDashboardSummary(), loadIntegrityReport()]);
+      await Promise.all([
+        refreshStatus(),
+        loadRows(),
+        loadDashboardSummary(),
+        loadIntegrityReport(),
+        refreshDecisionCatalogs(),
+        loadAllRoads(),
+        loadRoads(),
+        loadMeasurementCampaigns()
+      ]);
       if (activeSheet.name === "Feuil4") {
         await loadFeuil4Snapshot();
       }
@@ -1827,7 +3623,108 @@ export default function App() {
             ))}
           </select>
 
-          <label htmlFor="degradation">Dégradation</label>
+          <label htmlFor="measurement-campaign">Campagne Feuil1</label>
+          <select
+            id="measurement-campaign"
+            value={selectedMeasurementCampaignKey}
+            onChange={(event) => handleDecisionCampaignSelection(event.target.value)}
+          >
+            <option value="">Sélectionner une campagne</option>
+            {decisionMeasurementCampaigns.map((campaign) => (
+              <option key={campaign.campaignKey} value={campaign.campaignKey}>
+                {campaign.roadCode || "Voie"} | {campaign.designation} | {campaign.measurementDate || "Sans date"}
+              </option>
+            ))}
+          </select>
+
+          {selectedMeasurementCampaign ? (
+            <div className="card measurement-card">
+              <div className="dashboard-card__header">
+                <div>
+                  <h3>Campagne Feuil1 liée</h3>
+                  <p className="muted">Mesures réelles de déflexion disponibles pour la voie sélectionnée.</p>
+                </div>
+                <button
+                  className="row-action row-action--evaluate row-action--with-icon row-action--compact"
+                  type="button"
+                  onClick={() => handleUseMeasurementCampaign(selectedMeasurementCampaign)}
+                >
+                  <Gauge size={15} aria-hidden="true" />
+                  <span>Charger</span>
+                </button>
+              </div>
+
+              <div className="measurement-summary__grid">
+                <div className="measurement-summary__item">
+                  <span>Date</span>
+                  <strong>{selectedMeasurementCampaign.measurementDate || "-"}</strong>
+                </div>
+                <div className="measurement-summary__item">
+                  <span>Tronçon</span>
+                  <strong>{selectedMeasurementCampaign.sectionLabel || "-"}</strong>
+                </div>
+                <div className="measurement-summary__item">
+                  <span>PK début / fin</span>
+                  <strong>
+                    {selectedMeasurementCampaign.startLabel || "-"} / {selectedMeasurementCampaign.endLabel || "-"}
+                  </strong>
+                </div>
+                <div className="measurement-summary__item">
+                  <span>Mesures</span>
+                  <strong>{selectedMeasurementCampaign.measurementCount}</strong>
+                </div>
+                <div className="measurement-summary__item">
+                  <span>Dc max</span>
+                  <strong>{formatMeasurementNumber(selectedMeasurementCampaign.maxDeflectionDc)}</strong>
+                </div>
+                <div className="measurement-summary__item">
+                  <span>Dc moyen</span>
+                  <strong>{formatMeasurementNumber(selectedMeasurementCampaign.avgDeflectionDc)}</strong>
+                </div>
+              </div>
+
+              <div className="table-wrap measurement-picker">
+                <table className="table--measurements table--measurements-compact">
+                  <thead>
+                    <tr>
+                      <th>Action</th>
+                      <th>PK</th>
+                      <th>Dc</th>
+                      <th>Defl.Brute.Moy</th>
+                      <th>Écart type</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {measurementRows.map((measurement) => (
+                      <tr key={measurement.id}>
+                        <td>
+                          <button
+                            className="row-action row-action--use row-action--with-icon row-action--compact"
+                            type="button"
+                            onClick={() => handleUseMeasurementInDecision(measurement)}
+                          >
+                            <Gauge size={14} aria-hidden="true" />
+                            <span>Utiliser D</span>
+                          </button>
+                        </td>
+                        <td>{measurement.pkLabel || "-"}</td>
+                        <td>{formatMeasurementNumber(measurement.deflectionDc)}</td>
+                        <td>{formatMeasurementNumber(measurement.deflectionAvg)}</td>
+                        <td>{formatMeasurementNumber(measurement.stdDev)}</td>
+                      </tr>
+                    ))}
+                    {measurementRows.length === 0 ? (
+                      <tr>
+                        <td colSpan={5}>{isMeasurementLoading ? "Chargement..." : "Aucune mesure PK disponible."}</td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : null}
+
+          <label className="field-label--spaced" htmlFor="degradation">Dégradation</label>
           <select
             id="degradation"
             value={selectedDegradationId}
@@ -2988,84 +4885,1455 @@ export default function App() {
     );
   }
 
-  function renderSheetView() {
-    const isFeuil3Table = activeSheet?.name === "Feuil3";
+  function renderFeuil1View() {
+    const campaign = selectedMeasurementCampaign;
+    const campaignLabel = [campaign?.roadCode, campaign?.designation].filter(Boolean).join(" - ") || "Campagne sélectionnée";
+    const canCreateMeasurementRow = Boolean(selectedMeasurementCampaignKey);
+
+    return (
+      <main className="workspace workspace--full">
+        <section className="panel table-panel table-panel--full sheet-print-view">
+          <div className="dashboard-card__header">
+            <div>
+              <h2>{activeSheet?.title ?? "Feuil1"}</h2>
+              <p className="muted">
+                Feuille de campagnes de mesures de déflexion rattachées aux voies réelles du réseau.
+              </p>
+            </div>
+            <div className="sheet-header-actions">
+              <button
+                className="row-action row-action--evaluate row-action--with-icon"
+                type="button"
+                onClick={() => (campaign ? handleUseMeasurementCampaign(campaign) : undefined)}
+                disabled={!campaign}
+              >
+                <Gauge size={16} aria-hidden="true" />
+                <span>Utiliser dans l'aide à la décision</span>
+              </button>
+              {renderSheetPrintButton(activeSheet?.title ?? "Feuil1")}
+            </div>
+          </div>
+
+          <div className="measurement-actionbar">
+            <div className="measurement-toolbar__field">
+              <label htmlFor="feuil1-campaign">Campagne de mesure</label>
+              <select
+                id="feuil1-campaign"
+                value={selectedMeasurementCampaignKey}
+                onChange={(event) => handleDecisionCampaignSelection(event.target.value)}
+              >
+                <option value="">Sélectionner une campagne</option>
+                {measurementCampaigns.map((item) => (
+                  <option key={item.campaignKey} value={item.campaignKey}>
+                    {item.roadCode || "Voie"} | {item.designation} | {item.measurementDate || "Sans date"}
+                  </option>
+                ))}
+              </select>
+              <p className="field-help">
+                Choisis une campagne existante pour voir ses mesures, ou crée-en une nouvelle.
+              </p>
+            </div>
+            <div className="measurement-toolbar__meta">
+              <span className="pill">Campagnes: {measurementCampaigns.length}</span>
+              <span className="pill">Mesures: {campaign?.measurementCount ?? 0}</span>
+            </div>
+            <div className="measurement-actionbar__buttons">
+              <button
+                className="row-action row-action--save row-action--with-icon row-action--nowrap"
+                type="button"
+                onClick={handleStartNewMeasurementCampaign}
+                disabled={isMeasurementBusy}
+              >
+                <Plus size={16} aria-hidden="true" />
+                <span>Nouvelle campagne</span>
+              </button>
+              <button
+                className="row-action row-action--configure row-action--with-icon row-action--nowrap"
+                type="button"
+                onClick={handleEditMeasurementCampaign}
+                disabled={isMeasurementBusy || !campaign}
+              >
+                <Pencil size={16} aria-hidden="true" />
+                <span>Modifier campagne</span>
+              </button>
+              <button
+                className="row-action row-action--evaluate row-action--with-icon row-action--nowrap"
+                type="button"
+                onClick={handleStartNewMeasurementRow}
+                disabled={isMeasurementBusy || !canCreateMeasurementRow}
+              >
+                <Plus size={16} aria-hidden="true" />
+                <span>Nouvelle ligne PK</span>
+              </button>
+            </div>
+          </div>
+
+          {campaign ? (
+            <>
+              <div className="card measurement-summary">
+                <h3>Campagne active</h3>
+                <div className="measurement-summary__grid">
+                  <div className="measurement-summary__item">
+                    <span>Voie</span>
+                    <strong>{campaignLabel}</strong>
+                  </div>
+                  <div className="measurement-summary__item">
+                    <span>SAP</span>
+                    <strong>{campaign.sapCode || "-"}</strong>
+                  </div>
+                  <div className="measurement-summary__item">
+                    <span>Date</span>
+                    <strong>{campaign.measurementDate || "-"}</strong>
+                  </div>
+                  <div className="measurement-summary__item">
+                    <span>Tronçon</span>
+                    <strong>{campaign.sectionLabel || "-"}</strong>
+                  </div>
+                  <div className="measurement-summary__item">
+                    <span>PK début / fin</span>
+                    <strong>
+                      {campaign.startLabel || "-"} / {campaign.endLabel || "-"}
+                    </strong>
+                  </div>
+                  <div className="measurement-summary__item">
+                    <span>Intervalle PK</span>
+                    <strong>
+                      {formatMeasurementNumber(campaign.pkStartM)} m / {formatMeasurementNumber(campaign.pkEndM)} m
+                    </strong>
+                  </div>
+                  <div className="measurement-summary__item">
+                    <span>Dc max</span>
+                    <strong>{formatMeasurementNumber(campaign.maxDeflectionDc)}</strong>
+                  </div>
+                  <div className="measurement-summary__item">
+                    <span>Dc moyen</span>
+                    <strong>{formatMeasurementNumber(campaign.avgDeflectionDc)}</strong>
+                  </div>
+                </div>
+              </div>
+
+              <div className="table-wrap measurement-table-wrap">
+                <table className="table--measurements">
+                  <thead>
+                    <tr>
+                      <th rowSpan={2}>Actions</th>
+                      <th rowSpan={2}>PK</th>
+                      <th colSpan={3}>Lecture comparateur 1/100mm</th>
+                      <th rowSpan={2}>PK</th>
+                      <th colSpan={6}>Déflexion 1/100mm</th>
+                    </tr>
+                    <tr>
+                      <th>Gauche</th>
+                      <th>Axe</th>
+                      <th>Droit</th>
+                      <th>Gauche</th>
+                      <th>Axe</th>
+                      <th>Droit</th>
+                      <th>Defl.Brute.Moy</th>
+                      <th>Écart type</th>
+                      <th>Déflexion caractéristique Dc</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {measurementRows.map((measurement) => (
+                      <tr key={measurement.id}>
+                        <td>
+                          <div className="row-buttons row-buttons--compact row-buttons--wrap">
+                            <button
+                              className="row-action row-action--use row-action--with-icon row-action--compact"
+                              type="button"
+                              onClick={() => handleUseMeasurementInDecision(measurement)}
+                            >
+                              <Gauge size={14} aria-hidden="true" />
+                              <span>Utiliser D</span>
+                            </button>
+                            <button
+                              className="row-action row-action--icon row-action--icon-sm"
+                              type="button"
+                              onClick={() => handleEditMeasurementRow(measurement)}
+                              title="Éditer"
+                              aria-label="Éditer"
+                            >
+                              <Pencil size={15} aria-hidden="true" />
+                            </button>
+                            <button
+                              className="row-action row-action--danger row-action--icon row-action--icon-sm"
+                              type="button"
+                              onClick={() => handleDeleteMeasurementRow(measurement.id)}
+                              title="Supprimer"
+                              aria-label="Supprimer"
+                            >
+                              <Trash2 size={15} aria-hidden="true" />
+                            </button>
+                          </div>
+                        </td>
+                        <td>{measurement.pkLabel || "-"}</td>
+                        <td>{formatMeasurementNumber(measurement.lectureLeft)}</td>
+                        <td>{formatMeasurementNumber(measurement.lectureAxis)}</td>
+                        <td>{formatMeasurementNumber(measurement.lectureRight)}</td>
+                        <td>{measurement.pkLabel || "-"}</td>
+                        <td>{formatMeasurementNumber(measurement.deflectionLeft)}</td>
+                        <td>{formatMeasurementNumber(measurement.deflectionAxis)}</td>
+                        <td>{formatMeasurementNumber(measurement.deflectionRight)}</td>
+                        <td>{formatMeasurementNumber(measurement.deflectionAvg)}</td>
+                        <td>{formatMeasurementNumber(measurement.stdDev)}</td>
+                        <td>{formatMeasurementNumber(measurement.deflectionDc)}</td>
+                      </tr>
+                    ))}
+                    {measurementRows.length === 0 ? (
+                      <tr>
+                        <td colSpan={12}>{isMeasurementLoading ? "Chargement..." : "Aucune mesure disponible."}</td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          ) : (
+            <div className="card">
+              <p className="muted">
+                Sélectionne une campagne Feuil1 pour afficher la voie, la date, le tronçon et les mesures PK.
+              </p>
+            </div>
+          )}
+        </section>
+
+        {isMeasurementCampaignModalOpen ? (
+          <div className="modal-backdrop" role="presentation" onClick={() => setIsMeasurementCampaignModalOpen(false)}>
+            <div
+              ref={measurementCampaignEditorRef}
+              className="modal-card modal-card--wide"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="measurement-campaign-modal-title"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="modal-card__header">
+                <div>
+                  <h3 id="measurement-campaign-modal-title">
+                    {editingMeasurementCampaignId ? "Modifier la campagne" : "Nouvelle campagne"}
+                  </h3>
+                  <p className="muted">
+                    Renseigne la voie, la date, le tronçon et les bornes de la campagne de mesures.
+                  </p>
+                </div>
+                <button
+                  className="row-action row-action--icon"
+                  type="button"
+                  onClick={() => setIsMeasurementCampaignModalOpen(false)}
+                  aria-label="Fermer"
+                  title="Fermer"
+                >
+                  <X size={16} aria-hidden="true" />
+                </button>
+              </div>
+
+              {error ? <p className="modal-feedback modal-feedback--error">{error}</p> : null}
+              {!error && notice ? <p className="modal-feedback modal-feedback--notice">{notice}</p> : null}
+
+              <div className="maintenance-form-grid">
+                <div className={`cell-field${measurementCampaignFieldErrors.roadId ? " cell-field--error" : ""}`}>
+                  <label htmlFor="measurement-road">
+                    Voie concernée <span className="field-label__required">*</span>
+                  </label>
+                  <select
+                    id="measurement-road"
+                    required
+                    value={measurementCampaignRoadId}
+                    onChange={(event) => {
+                      clearMeasurementCampaignFieldError("roadId");
+                      setMeasurementCampaignRoadId(event.target.value ? Number(event.target.value) : "");
+                    }}
+                    disabled={isMeasurementBusy}
+                  >
+                    <option value="">Choisir une voie</option>
+                    {allRoads.map((road) => (
+                      <option key={"measurement-road-" + road.id} value={road.id}>
+                        {road.sapCode || "SAP?"} | {road.roadCode} | {road.designation}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="field-help">Choisis la voie exacte sur laquelle les mesures ont été faites.</p>
+                  {measurementCampaignFieldErrors.roadId ? <p className="field-error">{measurementCampaignFieldErrors.roadId}</p> : null}
+                </div>
+                <div className={`cell-field${measurementCampaignFieldErrors.measurementDate ? " cell-field--error" : ""}`}>
+                  <label htmlFor="measurement-date">
+                    Date de mesure <span className="field-label__required">*</span>
+                  </label>
+                  <input
+                    id="measurement-date"
+                    type="date"
+                    required
+                    value={measurementCampaignDate}
+                    onChange={(event) => {
+                      clearMeasurementCampaignFieldError("measurementDate");
+                      setMeasurementCampaignDate(event.target.value);
+                    }}
+                    disabled={isMeasurementBusy}
+                  />
+                  <p className="field-help">Date du relevé de déflexion.</p>
+                  {measurementCampaignFieldErrors.measurementDate ? <p className="field-error">{measurementCampaignFieldErrors.measurementDate}</p> : null}
+                </div>
+                <div className={`cell-field${measurementCampaignFieldErrors.sectionLabel ? " cell-field--error" : ""}`}>
+                  <label htmlFor="measurement-section">
+                    Nom du tronçon <span className="field-label__required">*</span>
+                  </label>
+                  <input
+                    id="measurement-section"
+                    required
+                    value={measurementCampaignSectionLabel}
+                    onChange={(event) => {
+                      clearMeasurementCampaignFieldError("sectionLabel");
+                      setMeasurementCampaignSectionLabel(event.target.value);
+                    }}
+                    placeholder="Ex: Rue du Port de Pêche (tronçon SCDP - DAP)"
+                    disabled={isMeasurementBusy}
+                  />
+                  <p className="field-help">Écris le nom complet du tronçon ou de la portion de voie mesurée.</p>
+                  {measurementCampaignFieldErrors.sectionLabel ? <p className="field-error">{measurementCampaignFieldErrors.sectionLabel}</p> : null}
+                </div>
+                <div className={`cell-field${measurementCampaignFieldErrors.startLabel ? " cell-field--error" : ""}`}>
+                  <label htmlFor="measurement-start-label">
+                    Point de départ <span className="field-label__required">*</span>
+                  </label>
+                  <input
+                    id="measurement-start-label"
+                    required
+                    value={measurementCampaignStartLabel}
+                    onChange={(event) => {
+                      clearMeasurementCampaignFieldError("startLabel");
+                      setMeasurementCampaignStartLabel(event.target.value);
+                    }}
+                    placeholder="Ex: SCDP"
+                    disabled={isMeasurementBusy}
+                  />
+                  <p className="field-help">Nom du lieu où la campagne commence.</p>
+                  {measurementCampaignFieldErrors.startLabel ? <p className="field-error">{measurementCampaignFieldErrors.startLabel}</p> : null}
+                </div>
+                <div className={`cell-field${measurementCampaignFieldErrors.endLabel ? " cell-field--error" : ""}`}>
+                  <label htmlFor="measurement-end-label">
+                    Point d'arrivée <span className="field-label__required">*</span>
+                  </label>
+                  <input
+                    id="measurement-end-label"
+                    required
+                    value={measurementCampaignEndLabel}
+                    onChange={(event) => {
+                      clearMeasurementCampaignFieldError("endLabel");
+                      setMeasurementCampaignEndLabel(event.target.value);
+                    }}
+                    placeholder="Ex: DAP"
+                    disabled={isMeasurementBusy}
+                  />
+                  <p className="field-help">Nom du lieu où la campagne se termine.</p>
+                  {measurementCampaignFieldErrors.endLabel ? <p className="field-error">{measurementCampaignFieldErrors.endLabel}</p> : null}
+                </div>
+                <div className={`cell-field${measurementCampaignFieldErrors.pkStartM ? " cell-field--error" : ""}`}>
+                  <label htmlFor="measurement-pk-start">PK début (mètres)</label>
+                  <input
+                    id="measurement-pk-start"
+                    type="number"
+                    step="0.001"
+                    value={measurementCampaignPkStartM}
+                    onChange={(event) => {
+                      clearMeasurementCampaignFieldError("pkStartM");
+                      setMeasurementCampaignPkStartM(event.target.value);
+                    }}
+                    placeholder="Ex: 1100"
+                    disabled={isMeasurementBusy}
+                  />
+                  <p className="field-help">Exemple : 1+100 devient 1100.</p>
+                  {measurementCampaignFieldErrors.pkStartM ? <p className="field-error">{measurementCampaignFieldErrors.pkStartM}</p> : null}
+                </div>
+                <div className={`cell-field${measurementCampaignFieldErrors.pkEndM ? " cell-field--error" : ""}`}>
+                  <label htmlFor="measurement-pk-end">PK fin (mètres)</label>
+                  <input
+                    id="measurement-pk-end"
+                    type="number"
+                    step="0.001"
+                    value={measurementCampaignPkEndM}
+                    onChange={(event) => {
+                      clearMeasurementCampaignFieldError("pkEndM");
+                      setMeasurementCampaignPkEndM(event.target.value);
+                    }}
+                    placeholder="Ex: 1730"
+                    disabled={isMeasurementBusy}
+                  />
+                  <p className="field-help">Exemple : 1+730 devient 1730.</p>
+                  {measurementCampaignFieldErrors.pkEndM ? <p className="field-error">{measurementCampaignFieldErrors.pkEndM}</p> : null}
+                </div>
+              </div>
+
+              <div className="modal-card__actions">
+                <button className="primary" type="button" onClick={handleSaveMeasurementCampaign} disabled={isMeasurementBusy}>
+                  {isMeasurementBusy ? "Enregistrement..." : editingMeasurementCampaignId ? "Mettre à jour la campagne" : "Enregistrer la campagne"}
+                </button>
+                <button
+                  className="row-action row-action--restore row-action--with-icon"
+                  type="button"
+                  onClick={() => resetMeasurementCampaignForm(selectedRoadId)}
+                  disabled={isMeasurementBusy}
+                >
+                  <RefreshCw size={15} aria-hidden="true" />
+                  <span>Réinitialiser</span>
+                </button>
+                <button
+                  className="row-action row-action--danger"
+                  type="button"
+                  onClick={handleDeleteMeasurementCampaign}
+                  disabled={isMeasurementBusy || !selectedMeasurementCampaign}
+                >
+                  Supprimer
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {isMeasurementRowModalOpen ? (
+          <div className="modal-backdrop" role="presentation" onClick={() => setIsMeasurementRowModalOpen(false)}>
+            <div
+              ref={measurementRowEditorRef}
+              className="modal-card modal-card--wide"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="measurement-row-modal-title"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="modal-card__header">
+                <div>
+                  <h3 id="measurement-row-modal-title">
+                    {editingMeasurementRowId ? "Modifier la ligne PK" : "Nouvelle ligne PK"}
+                  </h3>
+                  <p className="muted">
+                    Saisis les lectures comparateur et les valeurs de déflexion pour un PK précis.
+                  </p>
+                </div>
+                <button
+                  className="row-action row-action--icon"
+                  type="button"
+                  onClick={() => setIsMeasurementRowModalOpen(false)}
+                  aria-label="Fermer"
+                  title="Fermer"
+                >
+                  <X size={16} aria-hidden="true" />
+                </button>
+              </div>
+
+              {error ? <p className="modal-feedback modal-feedback--error">{error}</p> : null}
+              {!error && notice ? <p className="modal-feedback modal-feedback--notice">{notice}</p> : null}
+
+              {selectedMeasurementCampaignKey ? (
+                <>
+                  <p className="field-help">
+                    Campagne active : <strong>{campaignLabel}</strong>
+                  </p>
+                  {measurementRowFieldErrors.values ? <p className="modal-feedback modal-feedback--error">{measurementRowFieldErrors.values}</p> : null}
+                  <div className="maintenance-form-grid measurement-entry-grid">
+                    <div className={`cell-field${measurementRowFieldErrors.pkLabel ? " cell-field--error" : ""}`}>
+                      <label htmlFor="measurement-pk-label">
+                        PK affiché <span className="field-label__required">*</span>
+                      </label>
+                      <input
+                        id="measurement-pk-label"
+                        required
+                        value={measurementPkLabel}
+                        onChange={(event) => {
+                          clearMeasurementRowFieldError("pkLabel");
+                          setMeasurementPkLabel(event.target.value);
+                        }}
+                        placeholder="Ex: 0.000 ou 50.000"
+                        disabled={isMeasurementBusy}
+                      />
+                      <p className="field-help">Valeur affichée dans le tableau.</p>
+                      {measurementRowFieldErrors.pkLabel ? <p className="field-error">{measurementRowFieldErrors.pkLabel}</p> : null}
+                    </div>
+                    <div className={`cell-field${measurementRowFieldErrors.pkM ? " cell-field--error" : ""}`}>
+                      <label htmlFor="measurement-pk-m">
+                        PK en mètres <span className="field-label__required">*</span>
+                      </label>
+                      <input
+                        id="measurement-pk-m"
+                        type="number"
+                        step="0.001"
+                        required
+                        value={measurementPkM}
+                        onChange={(event) => {
+                          clearMeasurementRowFieldError("pkM");
+                          setMeasurementPkM(event.target.value);
+                        }}
+                        placeholder="Ex: 50"
+                        disabled={isMeasurementBusy}
+                      />
+                      <p className="field-help">Sert au classement automatique des PK.</p>
+                      {measurementRowFieldErrors.pkM ? <p className="field-error">{measurementRowFieldErrors.pkM}</p> : null}
+                    </div>
+                    <div className="cell-field">
+                      <label htmlFor="measurement-lecture-left">Lecture comparateur - Gauche</label>
+                      <input
+                        id="measurement-lecture-left"
+                        type="number"
+                        step="0.001"
+                        value={measurementLectureLeft}
+                        onChange={(event) => {
+                          clearMeasurementRowFieldError("values");
+                          setMeasurementLectureLeft(event.target.value);
+                        }}
+                        disabled={isMeasurementBusy}
+                      />
+                    </div>
+                    <div className="cell-field">
+                      <label htmlFor="measurement-lecture-axis">Lecture comparateur - Axe</label>
+                      <input
+                        id="measurement-lecture-axis"
+                        type="number"
+                        step="0.001"
+                        value={measurementLectureAxis}
+                        onChange={(event) => {
+                          clearMeasurementRowFieldError("values");
+                          setMeasurementLectureAxis(event.target.value);
+                        }}
+                        disabled={isMeasurementBusy}
+                      />
+                    </div>
+                    <div className="cell-field">
+                      <label htmlFor="measurement-lecture-right">Lecture comparateur - Droit</label>
+                      <input
+                        id="measurement-lecture-right"
+                        type="number"
+                        step="0.001"
+                        value={measurementLectureRight}
+                        onChange={(event) => {
+                          clearMeasurementRowFieldError("values");
+                          setMeasurementLectureRight(event.target.value);
+                        }}
+                        disabled={isMeasurementBusy}
+                      />
+                    </div>
+                    <div className="cell-field">
+                      <label htmlFor="measurement-deflection-left">Déflexion - Gauche</label>
+                      <input
+                        id="measurement-deflection-left"
+                        type="number"
+                        step="0.001"
+                        value={measurementDeflectionLeft}
+                        onChange={(event) => {
+                          clearMeasurementRowFieldError("values");
+                          setMeasurementDeflectionLeft(event.target.value);
+                        }}
+                        disabled={isMeasurementBusy}
+                      />
+                    </div>
+                    <div className="cell-field">
+                      <label htmlFor="measurement-deflection-axis">Déflexion - Axe</label>
+                      <input
+                        id="measurement-deflection-axis"
+                        type="number"
+                        step="0.001"
+                        value={measurementDeflectionAxis}
+                        onChange={(event) => {
+                          clearMeasurementRowFieldError("values");
+                          setMeasurementDeflectionAxis(event.target.value);
+                        }}
+                        disabled={isMeasurementBusy}
+                      />
+                    </div>
+                    <div className="cell-field">
+                      <label htmlFor="measurement-deflection-right">Déflexion - Droit</label>
+                      <input
+                        id="measurement-deflection-right"
+                        type="number"
+                        step="0.001"
+                        value={measurementDeflectionRight}
+                        onChange={(event) => {
+                          clearMeasurementRowFieldError("values");
+                          setMeasurementDeflectionRight(event.target.value);
+                        }}
+                        disabled={isMeasurementBusy}
+                      />
+                    </div>
+                    <div className="cell-field">
+                      <label htmlFor="measurement-deflection-avg">Déflexion brute moyenne</label>
+                      <input
+                        id="measurement-deflection-avg"
+                        type="number"
+                        step="0.001"
+                        value={measurementDeflectionAvg}
+                        onChange={(event) => {
+                          clearMeasurementRowFieldError("values");
+                          setMeasurementDeflectionAvg(event.target.value);
+                        }}
+                        disabled={isMeasurementBusy}
+                      />
+                    </div>
+                    <div className="cell-field">
+                      <label htmlFor="measurement-std-dev">Écart type</label>
+                      <input
+                        id="measurement-std-dev"
+                        type="number"
+                        step="0.001"
+                        value={measurementStdDev}
+                        onChange={(event) => {
+                          clearMeasurementRowFieldError("values");
+                          setMeasurementStdDev(event.target.value);
+                        }}
+                        disabled={isMeasurementBusy}
+                      />
+                    </div>
+                    <div className="cell-field">
+                      <label htmlFor="measurement-deflection-dc">Déflexion caractéristique Dc</label>
+                      <input
+                        id="measurement-deflection-dc"
+                        type="number"
+                        step="0.001"
+                        value={measurementDeflectionDc}
+                        onChange={(event) => {
+                          clearMeasurementRowFieldError("values");
+                          setMeasurementDeflectionDc(event.target.value);
+                        }}
+                        disabled={isMeasurementBusy}
+                      />
+                      <p className="field-help">Cette valeur peut être injectée dans le champ D de l'aide à la décision.</p>
+                    </div>
+                  </div>
+
+                  <div className="modal-card__actions">
+                    <button className="primary" type="button" onClick={handleSaveMeasurementRow} disabled={isMeasurementBusy}>
+                      {isMeasurementBusy ? "Enregistrement..." : editingMeasurementRowId ? "Mettre à jour la ligne" : "Enregistrer la ligne"}
+                    </button>
+                    <button
+                      className="row-action row-action--restore row-action--with-icon"
+                      type="button"
+                      onClick={resetMeasurementRowForm}
+                      disabled={isMeasurementBusy}
+                    >
+                      <RefreshCw size={15} aria-hidden="true" />
+                      <span>Réinitialiser</span>
+                    </button>
+                    <button
+                      className="row-action row-action--danger"
+                      type="button"
+                      onClick={() => (editingMeasurementRowId ? handleDeleteMeasurementRow(editingMeasurementRowId) : undefined)}
+                      disabled={isMeasurementBusy || !editingMeasurementRowId}
+                    >
+                      Supprimer
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <p className="muted">Crée ou sélectionne d'abord une campagne pour saisir les lignes PK.</p>
+              )}
+            </div>
+          </div>
+        ) : null}
+      </main>
+    );
+  }
+
+
+  function renderSheetEditorPanel() {
+    if (!activeSheet || activeSheet.name === "Feuil1") {
+      return null;
+    }
+
+    return (
+      <section ref={sheetEditorRef} className="panel editor-panel editor-panel--sheet">
+        <h2>{activeSheet.title}</h2>
+        <p className="field-help">Les champs marqués d'un * sont obligatoires.</p>
+        {draftFormError ? <p className="modal-feedback modal-feedback--error">{draftFormError}</p> : null}
+
+        <div className="cells-grid">
+          {editableColumns.map((column) => (
+            <div className={`cell-field${draftFieldErrors[column] ? " cell-field--error" : ""}`} key={column}>
+              <label htmlFor={`cell-${column}`}>
+                {getColumnLabel(activeSheet, column)}
+                {isSheetFieldRequired(activeSheet.name, column) ? <span className="field-label__required"> *</span> : null}
+              </label>
+              {(() => {
+                const suggestions = getSheetFieldSuggestions(activeSheet?.name, column);
+                const inputId = `cell-${column}`;
+                const datalistId = suggestions.length > 0 ? `cell-suggestions-${activeSheet?.name ?? "sheet"}-${column}` : undefined;
+                const useTextarea =
+                  (activeSheet?.name === "Feuil3" && ["H", "J", "L"].includes(column)) ||
+                  (activeSheet?.name === "Feuil5" && ["M", "N", "O", "P"].includes(column));
+                const fieldPlaceholder = getSheetFieldPlaceholder(activeSheet?.name, column) || suggestions[0] || "Entrez une valeur";
+                const fieldHelp = getSheetFieldHelpText(activeSheet?.name, column);
+
+                const commonProps = {
+                  id: inputId,
+                  value: draftCells[column] ?? "",
+                  required: isSheetFieldRequired(activeSheet.name, column),
+                  onChange: (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+                    handleDraftCellChange(column, event.target.value);
+                  }
+                };
+
+                if (useTextarea) {
+                  return (
+                    <>
+                      <textarea
+                        {...commonProps}
+                        className={`input-textarea${draftFieldErrors[column] ? " cell-field--error" : ""}`}
+                        rows={column === "L" ? 4 : 3}
+                        placeholder={fieldPlaceholder}
+                      />
+                      {draftFieldErrors[column] ? <p className="field-error">{draftFieldErrors[column]}</p> : null}
+                      {fieldHelp ? <p className="field-help">{fieldHelp}</p> : null}
+                    </>
+                  );
+                }
+
+                return (
+                  <>
+                    <input
+                      {...commonProps}
+                      className={draftFieldErrors[column] ? "cell-field--error" : undefined}
+                      list={datalistId}
+                      placeholder={fieldPlaceholder}
+                    />
+                    {draftFieldErrors[column] ? <p className="field-error">{draftFieldErrors[column]}</p> : null}
+                    {datalistId ? (
+                      <datalist id={datalistId}>
+                        {suggestions.map((item) => (
+                          <option key={`${column}-${item}`} value={item} />
+                        ))}
+                      </datalist>
+                    ) : null}
+                    {fieldHelp ? <p className="field-help">{fieldHelp}</p> : null}
+                  </>
+                );
+              })()}
+            </div>
+          ))}
+        </div>
+
+        <div className="editor-actions">
+          <button className="primary" type="button" onClick={handleSaveRow} disabled={isBusy || !activeSheet}>
+            {editingRowId ? "Enregistrer" : "Ajouter"}
+          </button>
+          <button className="row-action" type="button" onClick={handleStartNewRow} disabled={isBusy}>
+            Nouvelle ligne
+          </button>
+          <button
+            className="row-action row-action--danger"
+            type="button"
+            onClick={() => handleDeleteRow()}
+            disabled={isBusy || !editingRowId}
+          >
+            Supprimer
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  function renderFeuil2View() {
+    const totalSections = feuil2Groups.reduce((sum, group) => sum + group.rows.length, 0);
+    const totalLength = feuil2Groups.reduce((sum, group) => sum + group.totalLengthM, 0);
 
     return (
       <main className="workspace">
-        <section className="panel editor-panel">
-          <h2>{activeSheet?.title ?? "Feuille"}</h2>
-          <p className="muted">{activeSheet?.description ?? "Sélectionne une feuille"}</p>
+        {renderSheetEditorPanel()}
+        <section className="panel table-panel table-panel--full sheet-print-view">
+          <div className="dashboard-card__header">
+            <div>
+              <h2>{activeSheet?.title ?? "Feuil2"}</h2>
+              <p className="muted">
+                Référentiel des sections du réseau, groupé par SAP, utilisé pour structurer les voies et leurs bornes.
+              </p>
+            </div>
+            <div className="sheet-header-actions">
+              <div className="measurement-toolbar__meta">
+                <span className="pill">SAP: {feuil2Groups.length}</span>
+                <span className="pill">Sections: {totalSections}</span>
+                <span className="pill">Linéaire: {formatMeasurementNumber(totalLength)} m</span>
+              </div>
+              {renderSheetPrintButton(activeSheet?.title ?? "Feuil2")}
+            </div>
+          </div>
 
-          <div className="cells-grid">
-            {activeColumns.map((column) => (
-              <div className="cell-field" key={column}>
-                <label htmlFor={`cell-${column}`}>{getColumnLabel(activeSheet, column)}</label>
-                {(() => {
-                  const suggestions = getSheetFieldSuggestions(activeSheet?.name, column);
-                  const inputId = `cell-${column}`;
-                  const datalistId = suggestions.length > 0 ? `cell-suggestions-${activeSheet?.name ?? "sheet"}-${column}` : undefined;
-                  const useTextarea =
-                    (activeSheet?.name === "Feuil3" && ["H", "J", "L"].includes(column)) ||
-                    (activeSheet?.name === "Feuil5" && ["M", "N", "O", "P"].includes(column));
+          <div className="feuil2-main">
+            <div className="measurement-toolbar">
+              <div className="measurement-toolbar__field">
+                <label htmlFor="feuil2-search">Recherche section</label>
+                <input
+                  id="feuil2-search"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Voie, désignation, début, fin"
+                />
+              </div>
+              <div className="feuil2-filter">
+                <label htmlFor="feuil2-sap">Filtre SAP</label>
+                <select id="feuil2-sap" value={feuil2SapFilter} onChange={(event) => setFeuil2SapFilter(event.target.value)}>
+                  <option value="">Tous les SAP</option>
+                  {feuil2SapOptions.map((sapCode) => (
+                    <option key={sapCode} value={sapCode}>
+                      {sapCode}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
 
-                  const commonProps = {
-                    id: inputId,
-                    value: draftCells[column] ?? "",
-                    onChange: (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
-                      setDraftCells((prev) => ({
-                        ...prev,
-                        [column]: event.target.value
-                      }))
-                  };
-
-                  if (useTextarea) {
-                    return (
-                      <textarea
-                        {...commonProps}
-                        className="input-textarea"
-                        rows={column === "L" ? 4 : 3}
-                        placeholder={suggestions[0] || "Saisie métier"}
-                      />
-                    );
-                  }
-
-                  return (
-                    <>
-                      <input {...commonProps} list={datalistId} />
-                      {datalistId ? (
-                        <datalist id={datalistId}>
-                          {suggestions.map((item) => (
-                            <option key={`${column}-${item}`} value={item} />
-                          ))}
-                        </datalist>
-                      ) : null}
-                    </>
-                  );
-                })()}
+            {feuil2Groups.map((group) => (
+              <div className="card feuil2-group" key={group.sapCode}>
+                <div className="dashboard-card__header">
+                  <h3>{group.sapCode}</h3>
+                  <span className="status-pill">{formatMeasurementNumber(group.totalLengthM)} m</span>
+                </div>
+                <div className="table-wrap feuil2-table-wrap">
+                  <table className="table--feuil2">
+                    <thead>
+                      <tr>
+                        <th>Actions</th>
+                        <th>N°</th>
+                        <th>N° tronçon</th>
+                        <th>N° section</th>
+                        <th>Voie</th>
+                        <th>Désignation</th>
+                        <th>Début</th>
+                        <th>Fin</th>
+                        <th>Longueur (m)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {group.rows.map((item, index) => (
+                        <tr key={item.row.id}>
+                          <td>
+                            <div className="row-buttons row-buttons--compact row-buttons--wrap">
+                              <button
+                                className="row-action row-action--evaluate row-action--with-icon row-action--compact"
+                                type="button"
+                                onClick={() => handleUseFeuil2Section(item.row)}
+                              >
+                                <Gauge size={14} aria-hidden="true" />
+                                <span>Évaluer</span>
+                              </button>
+                              <button
+                                className="row-action row-action--icon row-action--icon-sm"
+                                type="button"
+                                onClick={() => handleEdit(item.row)}
+                                title="Éditer"
+                                aria-label="Éditer"
+                              >
+                                <Pencil size={15} aria-hidden="true" />
+                              </button>
+                              <button
+                                className="row-action row-action--danger row-action--icon row-action--icon-sm"
+                                type="button"
+                                onClick={() => handleDeleteRow(item.row.id)}
+                                title="Supprimer"
+                                aria-label="Supprimer"
+                              >
+                                <Trash2 size={15} aria-hidden="true" />
+                              </button>
+                            </div>
+                          </td>
+                          <td>{index + 1}</td>
+                          <td>{toDisplay(item.tronconNo)}</td>
+                          <td>{toDisplay(item.sectionNo)}</td>
+                          <td>{toDisplay(item.roadLabel)}</td>
+                          <td>{toDisplay(item.designation)}</td>
+                          <td>{toDisplay(item.startLabel)}</td>
+                          <td>{toDisplay(item.endLabel)}</td>
+                          <td>{formatMeasurementNumber(item.lengthM)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             ))}
-          </div>
 
-          <div className="editor-actions">
-            <button className="primary" type="button" onClick={handleSaveRow} disabled={isBusy || !activeSheet}>
-              {editingRowId ? "Enregistrer" : "Ajouter"}
-            </button>
-            <button className="row-action" type="button" onClick={resetDraft} disabled={isBusy}>
-              Réinitialiser
-            </button>
-            <button
-              className="row-action row-action--danger"
-              type="button"
-              onClick={() => handleDeleteRow()}
-              disabled={isBusy || !editingRowId}
-            >
-              Supprimer
-            </button>
+            {feuil2Groups.length === 0 ? (
+              <div className="card">
+                <p className="muted">{isLoadingRows ? "Chargement..." : "Aucune section Feuil2 disponible."}</p>
+              </div>
+            ) : null}
           </div>
         </section>
+      </main>
+    );
+  }
 
-        <section className="panel table-panel">
+  function renderFeuil6View() {
+    const totalRoads = feuil6Groups.reduce((sum, group) => sum + group.rows.length, 0);
+    const totalLinear = feuil6Groups.reduce((sum, group) => sum + group.totalLinearM, 0);
+
+    return (
+      <main className="workspace">
+        {renderSheetEditorPanel()}
+        <section className="panel table-panel table-panel--full sheet-print-view">
+          <div className="dashboard-card__header">
+            <div>
+              <h2>{activeSheet?.title ?? "Feuil6"}</h2>
+              <p className="muted">
+                Répertoire codifié central des voies: type, code, nom proposé, itinéraire et justification, réutilisés dans tout le système.
+              </p>
+            </div>
+            <div className="sheet-header-actions">
+              <div className="measurement-toolbar__meta">
+                <span className="pill">SAP: {feuil6Groups.length}</span>
+                <span className="pill">Voies: {totalRoads}</span>
+                <span className="pill">Liées: {feuil6LinkedCount}</span>
+                <span className="pill">Linéaire: {formatMeasurementNumber(totalLinear)} m</span>
+              </div>
+              {renderSheetPrintButton(activeSheet?.title ?? "Feuil6")}
+            </div>
+          </div>
+
+          <div className="feuil2-layout feuil2-layout--single">
+            <div className="feuil2-main">
+              <div className="measurement-toolbar">
+                <div className="measurement-toolbar__field">
+                  <label htmlFor="feuil6-search">Recherche voie codifiée</label>
+                  <input
+                    id="feuil6-search"
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                    placeholder="Code, nom proposé, itinéraire, justification"
+                  />
+                </div>
+                <div className="feuil2-filter">
+                  <label htmlFor="feuil6-sap">Filtre SAP</label>
+                  <select id="feuil6-sap" value={feuil6SapFilter} onChange={(event) => setFeuil6SapFilter(event.target.value)}>
+                    <option value="">Tous les SAP</option>
+                    {feuil6SapOptions.map((sapCode) => (
+                      <option key={sapCode} value={sapCode}>
+                        {sapCode}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {feuil6Groups.map((group) => (
+                <div className="card feuil2-group" key={group.sapCode}>
+                  <div className="dashboard-card__header">
+                    <h3>{group.sapCode}</h3>
+                    <span className="status-pill">{formatMeasurementNumber(group.totalLinearM)} m</span>
+                  </div>
+                  <div className="table-wrap feuil2-table-wrap">
+                  <table className="table--feuil6">
+                    <thead>
+                      <tr>
+                        <th>Action</th>
+                        <th>N°</th>
+                        <th>Type de voie</th>
+                          <th>Code</th>
+                          <th>Linéaire (ml)</th>
+                          <th>Noms proposés</th>
+                          <th>Itinéraires</th>
+                          <th>Justification</th>
+                          <th>Raccordement</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {group.rows.map((item, index) => (
+                          <tr key={item.row.id}>
+                            <td>
+                              <div className="row-buttons row-buttons--compact row-buttons--wrap">
+                                <button
+                                  className="row-action row-action--evaluate row-action--with-icon row-action--compact"
+                                  type="button"
+                                  onClick={() => handleUseFeuil6Road(item.row)}
+                                  disabled={!item.linkedRoad}
+                                >
+                                  <Gauge size={14} aria-hidden="true" />
+                                  <span>Évaluer</span>
+                                </button>
+                                <button
+                                  className="row-action row-action--icon row-action--icon-sm"
+                                  type="button"
+                                  onClick={() => handleEdit(item.row)}
+                                  title="Éditer"
+                                  aria-label="Éditer"
+                                >
+                                  <Pencil size={15} aria-hidden="true" />
+                                </button>
+                                <button
+                                  className="row-action row-action--danger row-action--icon row-action--icon-sm"
+                                  type="button"
+                                  onClick={() => handleDeleteRow(item.row.id)}
+                                  title="Supprimer"
+                                  aria-label="Supprimer"
+                                >
+                                  <Trash2 size={15} aria-hidden="true" />
+                              </button>
+                            </div>
+                          </td>
+                          <td>{index + 1}</td>
+                          <td>{toDisplay(item.roadType)}</td>
+                          <td>{toDisplay(item.roadCode)}</td>
+                            <td>{formatMeasurementNumber(item.linearM)}</td>
+                            <td>{toDisplay(item.proposedName)}</td>
+                            <td>{toDisplay(item.itinerary)}</td>
+                            <td>{toDisplay(item.justification)}</td>
+                            <td>
+                              <span className={`status-pill ${item.linkedRoad ? "status-pill--ok" : "status-pill--warning"}`}>
+                                {item.linkedRoad ? "Liée" : "À vérifier"}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ))}
+
+              {feuil6Groups.length === 0 ? (
+                <div className="card">
+                  <p className="muted">{isLoadingRows ? "Chargement..." : "Aucune voie Feuil6 disponible."}</p>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </section>
+      </main>
+    );
+  }
+
+  function renderFeuil3View() {
+    const totalProfiles = feuil3Groups.reduce((sum, group) => sum + group.rows.length, 0);
+
+    return (
+      <main className="workspace">
+        <div className="workspace-side-stack">
+          {renderSheetEditorPanel()}
+          <section className="panel">
+            <div className="card">
+              <h3>Lecture métier</h3>
+              <p className="muted">
+                Feuil3 porte l'état technique courant de la voie. C'est la feuille la plus proche du diagnostic terrain avant décision.
+              </p>
+            </div>
+
+            <div className="card">
+              <h3>Interventions à préciser</h3>
+              <ul className="count-list">
+                {feuil3Groups.map((group) => {
+                  const pending = group.rows.filter((item) => isToDetermineIntervention(item.interventionHint)).length;
+                  return (
+                    <li key={`${group.sapCode}-pending`}>
+                      <span>{group.sapCode}</span>
+                      <strong>{pending}</strong>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+
+            <div className="card">
+              <h3>Assainissement sous surveillance</h3>
+              <ul className="count-list">
+                {feuil3Groups.map((group) => {
+                  const flagged = group.rows.filter((item) => {
+                    const normalized = normalizeLabel(item.drainageState);
+                    return Boolean(normalized && !["-", "BON"].includes(normalized));
+                  }).length;
+                  return (
+                    <li key={`${group.sapCode}-drainage`}>
+                      <span>{group.sapCode}</span>
+                      <strong>{flagged}</strong>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          </section>
+        </div>
+        <section className="panel table-panel table-panel--full sheet-print-view">
+          <div className="dashboard-card__header">
+            <div>
+              <h2>{activeSheet?.title ?? "Feuil3"}</h2>
+              <p className="muted">
+                Profil technique détaillé des voies: chaussée, assainissement, trottoirs et nature d'intervention recommandée.
+              </p>
+            </div>
+            <div className="sheet-header-actions">
+              <div className="measurement-toolbar__meta">
+                <span className="pill">SAP: {feuil3Groups.length}</span>
+                <span className="pill">Profils: {totalProfiles}</span>
+                <span className="pill">À déterminer: {feuil3PendingInterventions}</span>
+                <span className="pill">Assainissement à surveiller: {feuil3DrainageAlerts}</span>
+              </div>
+              {renderSheetPrintButton(activeSheet?.title ?? "Feuil3")}
+            </div>
+          </div>
+
+          <div className="feuil2-main">
+            <div className="measurement-toolbar">
+              <div className="measurement-toolbar__field">
+                <label htmlFor="feuil3-search">Recherche profil technique</label>
+                <input
+                  id="feuil3-search"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Voie, désignation, état chaussée, assainissement"
+                />
+              </div>
+              <div className="feuil2-filter">
+                <label htmlFor="feuil3-sap">Filtre SAP</label>
+                <select id="feuil3-sap" value={feuil3SapFilter} onChange={(event) => setFeuil3SapFilter(event.target.value)}>
+                  <option value="">Tous les SAP</option>
+                  {feuil3SapOptions.map((sapCode) => (
+                    <option key={sapCode} value={sapCode}>
+                      {sapCode}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {feuil3Groups.map((group) => (
+              <div className="card feuil2-group" key={group.sapCode}>
+                <div className="dashboard-card__header">
+                  <h3>{group.sapCode}</h3>
+                  <span className="status-pill">{group.rows.length} profil(s)</span>
+                </div>
+                <div className="table-wrap feuil2-table-wrap">
+                  <table className="table--feuil3">
+                    <thead>
+                      <tr>
+                        <th rowSpan={3}>Action</th>
+                        <th rowSpan={3}>N°</th>
+                        <th rowSpan={3}>Voies</th>
+                        <th rowSpan={3}>Désignation</th>
+                        <th rowSpan={3}>Début</th>
+                        <th rowSpan={3}>Fin</th>
+                        <th rowSpan={3}>Longueur (m)</th>
+                        <th rowSpan={3}>Largeur min. façade (m)</th>
+                        <th colSpan={2}>CHAUSSÉE (en %)</th>
+                        <th colSpan={2}>ASSAINISSEMENT</th>
+                        <th rowSpan={3}>Largeur min. trottoirs (m)</th>
+                        <th rowSpan={3}>Nature de l'intervention</th>
+                      </tr>
+                      <tr>
+                        <th>Nature du revêtement</th>
+                        <th>État de la chaussée</th>
+                        <th>Type</th>
+                        <th>État</th>
+                      </tr>
+                      <tr>
+                        <th>&nbsp;</th>
+                        <th>&nbsp;</th>
+                        <th>caniveaux</th>
+                        <th>description</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {group.rows.map((item, index) => (
+                        <tr key={item.row.id}>
+                          <td>
+                            <div className="row-buttons row-buttons--compact row-buttons--wrap">
+                              <button
+                                className="row-action row-action--evaluate row-action--with-icon row-action--compact"
+                                type="button"
+                                onClick={() => handleUseFeuil3Profile(item.row)}
+                                disabled={!item.linkedRoad}
+                              >
+                                <Gauge size={14} aria-hidden="true" />
+                                <span>Évaluer</span>
+                              </button>
+                              <button
+                                className="row-action row-action--icon row-action--icon-sm"
+                                type="button"
+                                onClick={() => handleEdit(item.row)}
+                                title="Éditer"
+                                aria-label="Éditer"
+                              >
+                                <Pencil size={15} aria-hidden="true" />
+                              </button>
+                              <button
+                                className="row-action row-action--danger row-action--icon row-action--icon-sm"
+                                type="button"
+                                onClick={() => handleDeleteRow(item.row.id)}
+                                title="Supprimer"
+                                aria-label="Supprimer"
+                              >
+                                <Trash2 size={15} aria-hidden="true" />
+                              </button>
+                            </div>
+                          </td>
+                          <td>{index + 1}</td>
+                          <td>{toDisplay(item.roadLabel)}</td>
+                          <td>{toDisplay(item.designation)}</td>
+                          <td>{toDisplay(item.startLabel)}</td>
+                          <td>{toDisplay(item.endLabel)}</td>
+                          <td>{formatMeasurementNumber(item.lengthM)}</td>
+                          <td>{formatMeasurementNumber(item.facadeWidthM)}</td>
+                          <td>{toDisplay(item.surfaceType)}</td>
+                          <td>{toDisplay(item.pavementState)}</td>
+                          <td>{toDisplay(item.drainageType)}</td>
+                          <td>{toDisplay(item.drainageState)}</td>
+                          <td>{formatMeasurementNumber(item.sidewalkMinM)}</td>
+                          <td className={isToDetermineIntervention(item.interventionHint) ? "cell-warning" : ""}>
+                            {item.interventionHint || "à déterminer (A D)"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
+
+            {feuil3Groups.length === 0 ? (
+              <div className="card">
+                <p className="muted">{isLoadingRows ? "Chargement..." : "Aucun profil Feuil3 disponible."}</p>
+              </div>
+            ) : null}
+          </div>
+        </section>
+      </main>
+    );
+  }
+
+  function renderFeuil5View() {
+    const totalProfiles = feuil5Groups.reduce((sum, group) => sum + group.rows.length, 0);
+
+    return (
+      <main className="workspace">
+        <div className="workspace-side-stack">
+          {renderSheetEditorPanel()}
+          <section className="panel">
+            <div className="card">
+              <h3>Lecture métier</h3>
+              <p className="muted">
+                Feuil5 enrichit Feuil3 avec les usages latéraux de la voie: stationnement, trottoirs et niveau d'assainissement.
+              </p>
+            </div>
+
+            <div className="card">
+              <h3>Stationnement recensé</h3>
+              <ul className="count-list">
+                {feuil5Groups.map((group) => {
+                  const count = group.rows.filter(
+                    (item) =>
+                      hasFeuil5ParkingValue(item.parkingLeft) ||
+                      hasFeuil5ParkingValue(item.parkingRight) ||
+                      hasFeuil5ParkingValue(item.parkingOther)
+                  ).length;
+                  return (
+                    <li key={`${group.sapCode}-parking`}>
+                      <span>{group.sapCode}</span>
+                      <strong>{count}</strong>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+
+            <div className="card">
+              <h3>Assainissement sous surveillance</h3>
+              <ul className="count-list">
+                {feuil5Groups.map((group) => {
+                  const count = group.rows.filter((item) => {
+                    const normalized = normalizeLabel(item.drainageState);
+                    return Boolean(normalized && !["-", "BON"].includes(normalized));
+                  }).length;
+                  return (
+                    <li key={`${group.sapCode}-drainage`}>
+                      <span>{group.sapCode}</span>
+                      <strong>{count}</strong>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          </section>
+        </div>
+        <section className="panel table-panel table-panel--full sheet-print-view">
+          <div className="dashboard-card__header">
+            <div>
+              <h2>{activeSheet?.title ?? "Feuil5"}</h2>
+              <p className="muted">
+                Compléments techniques des sections: assainissement, largeur minimale, trottoirs et stationnement, rattachés à la même voie centrale.
+              </p>
+            </div>
+            <div className="sheet-header-actions">
+              <div className="measurement-toolbar__meta">
+                <span className="pill">SAP: {feuil5Groups.length}</span>
+                <span className="pill">Profils: {totalProfiles}</span>
+                <span className="pill">Stationnement recensé: {feuil5ParkingCount}</span>
+                <span className="pill">Assainissement à surveiller: {feuil5DrainageWatchCount}</span>
+              </div>
+              {renderSheetPrintButton(activeSheet?.title ?? "Feuil5")}
+            </div>
+          </div>
+
+          <div className="feuil2-main">
+            <div className="measurement-toolbar">
+              <div className="measurement-toolbar__field">
+                <label htmlFor="feuil5-search">Recherche profil complémentaire</label>
+                <input
+                  id="feuil5-search"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Voie, désignation, assainissement, stationnement"
+                />
+              </div>
+              <div className="feuil2-filter">
+                <label htmlFor="feuil5-sap">Filtre SAP</label>
+                <select id="feuil5-sap" value={feuil5SapFilter} onChange={(event) => setFeuil5SapFilter(event.target.value)}>
+                  <option value="">Tous les SAP</option>
+                  {feuil5SapOptions.map((sapCode) => (
+                    <option key={sapCode} value={sapCode}>
+                      {sapCode}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {feuil5Groups.map((group) => (
+              <div className="card feuil2-group" key={group.sapCode}>
+                <div className="dashboard-card__header">
+                  <h3>{group.sapCode}</h3>
+                  <span className="status-pill">{group.rows.length} section(s)</span>
+                </div>
+                <div className="table-wrap feuil2-table-wrap">
+                  <table className="table--feuil5">
+                    <thead>
+                      <tr>
+                        <th rowSpan={3}>Action</th>
+                        <th rowSpan={3}>N°</th>
+                        <th rowSpan={3}>N° tronçon</th>
+                        <th rowSpan={3}>N° sections</th>
+                        <th rowSpan={3}>Voies</th>
+                        <th rowSpan={3}>Désignation</th>
+                        <th rowSpan={3}>Début</th>
+                        <th rowSpan={3}>Fin</th>
+                        <th rowSpan={3}>Longueur (m)</th>
+                        <th rowSpan={3}>Largeur min. façade (m)</th>
+                        <th colSpan={2}>CHAUSSÉE (en %)</th>
+                        <th colSpan={2}>ASSAINISSEMENT</th>
+                        <th rowSpan={3}>Largeur min. trottoirs (m)</th>
+                        <th colSpan={3}>STATIONNEMENT</th>
+                      </tr>
+                      <tr>
+                        <th>Nature du revêtement</th>
+                        <th>État de la chaussée</th>
+                        <th>Type</th>
+                        <th>État</th>
+                        <th>Gauche</th>
+                        <th>Droit</th>
+                        <th>Autres</th>
+                      </tr>
+                      <tr>
+                        <th>&nbsp;</th>
+                        <th>&nbsp;</th>
+                        <th>caniveaux</th>
+                        <th>description</th>
+                        <th>&nbsp;</th>
+                        <th>&nbsp;</th>
+                        <th>&nbsp;</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {group.rows.map((item, index) => (
+                        <tr key={item.row.id}>
+                          <td>
+                            <div className="row-buttons row-buttons--compact row-buttons--wrap">
+                              <button
+                                className="row-action row-action--evaluate row-action--with-icon row-action--compact"
+                                type="button"
+                                onClick={() => handleUseFeuil5Profile(item.row)}
+                                disabled={!item.linkedRoad}
+                              >
+                                <Gauge size={14} aria-hidden="true" />
+                                <span>Évaluer</span>
+                              </button>
+                              <button
+                                className="row-action row-action--icon row-action--icon-sm"
+                                type="button"
+                                onClick={() => handleEdit(item.row)}
+                                title="Éditer"
+                                aria-label="Éditer"
+                              >
+                                <Pencil size={15} aria-hidden="true" />
+                              </button>
+                              <button
+                                className="row-action row-action--danger row-action--icon row-action--icon-sm"
+                                type="button"
+                                onClick={() => handleDeleteRow(item.row.id)}
+                                title="Supprimer"
+                                aria-label="Supprimer"
+                              >
+                                <Trash2 size={15} aria-hidden="true" />
+                              </button>
+                            </div>
+                          </td>
+                          <td>{index + 1}</td>
+                          <td>{toDisplay(item.tronconNo)}</td>
+                          <td>{toDisplay(item.sectionNo)}</td>
+                          <td>{toDisplay(item.roadLabel)}</td>
+                          <td>{toDisplay(item.designation)}</td>
+                          <td>{toDisplay(item.startLabel)}</td>
+                          <td>{toDisplay(item.endLabel)}</td>
+                          <td>{formatMeasurementNumber(item.lengthM)}</td>
+                          <td>{formatMeasurementNumber(item.facadeWidthM)}</td>
+                          <td>{toDisplay(item.surfaceType)}</td>
+                          <td>{toDisplay(item.pavementState)}</td>
+                          <td>{toDisplay(item.drainageType)}</td>
+                          <td className={normalizeLabel(item.drainageState) === "BON" ? "" : "cell-warning"}>
+                            {toDisplay(item.drainageState)}
+                          </td>
+                          <td>{formatMeasurementNumber(item.sidewalkMinM)}</td>
+                          <td>{toDisplay(item.parkingLeft)}</td>
+                          <td>{toDisplay(item.parkingRight)}</td>
+                          <td>{toDisplay(item.parkingOther)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
+
+            {feuil5Groups.length === 0 ? (
+              <div className="card">
+                <p className="muted">{isLoadingRows ? "Chargement..." : "Aucun profil Feuil5 disponible."}</p>
+              </div>
+            ) : null}
+          </div>
+        </section>
+      </main>
+    );
+  }
+
+  function renderSheetView() {
+    if (activeSheet?.name === "Feuil1") {
+      return renderFeuil1View();
+    }
+    if (activeSheet?.name === "Feuil2") {
+      return renderFeuil2View();
+    }
+    if (activeSheet?.name === "Feuil3") {
+      return renderFeuil3View();
+    }
+    if (activeSheet?.name === "Feuil5") {
+      return renderFeuil5View();
+    }
+    if (activeSheet?.name === "Feuil6") {
+      return renderFeuil6View();
+    }
+
+    return (
+      <main className="workspace">
+        {renderSheetEditorPanel()}
+
+        <section className="panel table-panel sheet-print-view">
+          <div className="dashboard-card__header">
+            <div>
+              <h2>{activeSheet?.title ?? "Feuille"}</h2>
+              <p className="muted">Impression du tableau de la feuille active, avec les colonnes et lignes actuellement affichées.</p>
+            </div>
+            {renderSheetPrintButton(activeSheet?.title ?? "Feuille")}
+          </div>
+
           <div className="table-toolbar">
             <input
               value={search}
@@ -3078,51 +6346,20 @@ export default function App() {
           </div>
 
           <div className="table-wrap">
-            <table className={isFeuil3Table ? "table--feuil3" : undefined}>
+            <table>
               <thead>
-                {isFeuil3Table ? (
-                  <>
-                    <tr>
-                      <th rowSpan={3}>Actions</th>
-                      <th rowSpan={3}>N° ligne</th>
-                      <th rowSpan={3}>{getColumnLabel(activeSheet, "A")}</th>
-                      <th rowSpan={3}>{getColumnLabel(activeSheet, "B")}</th>
-                      <th rowSpan={3}>{getColumnLabel(activeSheet, "C")}</th>
-                      <th rowSpan={3}>{getColumnLabel(activeSheet, "D")}</th>
-                      <th rowSpan={3}>{getColumnLabel(activeSheet, "E")}</th>
-                      <th rowSpan={3}>{getColumnLabel(activeSheet, "F")}</th>
-                      <th colSpan={2}>CHAUSSEE (en %)</th>
-                      <th colSpan={2}>ASSAINISSEMENT</th>
-                      <th rowSpan={3}>{getColumnLabel(activeSheet, "K")}</th>
-                      <th rowSpan={3}>{getColumnLabel(activeSheet, "L")}</th>
-                    </tr>
-                    <tr>
-                      <th>{getColumnLabel(activeSheet, "G")}</th>
-                      <th>{getColumnLabel(activeSheet, "H")}</th>
-                      <th>Type</th>
-                      <th>Etat</th>
-                    </tr>
-                    <tr>
-                      <th>&nbsp;</th>
-                      <th>&nbsp;</th>
-                      <th>caniveaux</th>
-                      <th>description</th>
-                    </tr>
-                  </>
-                ) : (
-                  <tr>
-                    <th>Actions</th>
-                    <th>N° ligne</th>
-                    {activeColumns.map((column) => (
-                      <th key={`head-${column}`}>
-                        {getColumnLabel(activeSheet, column)}
-                      </th>
-                    ))}
-                  </tr>
-                )}
+                <tr>
+                  <th>Actions</th>
+                  <th>N°</th>
+                  {activeColumns.map((column) => (
+                    <th key={`head-${column}`}>
+                      {getColumnLabel(activeSheet, column)}
+                    </th>
+                  ))}
+                </tr>
               </thead>
               <tbody>
-                {rows.map((row) => (
+                {rows.map((row, index) => (
                   <tr key={row.id} className={editingRowId === row.id ? "is-selected" : ""}>
                     <td>
                       <div className="row-buttons">
@@ -3146,7 +6383,7 @@ export default function App() {
                         </button>
                       </div>
                     </td>
-                    <td>{getDisplayRowNumber(row)}</td>
+                    <td>{index + 1}</td>
                     {activeColumns.map((column) => {
                       const rawValue = String(row[column] ?? "");
                       const isFeuil3Intervention = activeSheet?.name === "Feuil3" && column === "L";

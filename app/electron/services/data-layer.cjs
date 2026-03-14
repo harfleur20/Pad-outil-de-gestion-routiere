@@ -274,10 +274,12 @@ const BACKUP_TABLES = [
   ...SHEET_DEFINITIONS.map((sheet) => sheet.table),
   "sap_sector",
   "road",
+  "road_alias",
   "degradation",
   "degradation_cause",
   "road_degradation",
   "road_section",
+  "measurement_campaign",
   "road_measurement",
   "decision_profile_input",
   "maintenance_solution_template",
@@ -300,8 +302,8 @@ function setupDataLayer({ app }) {
   db.pragma("foreign_keys = ON");
 
   preEnsureLegacyColumns(db);
-  ensureSchema(db);
   migrateLegacySchema(db);
+  ensureSchema(db);
   repairLegacyRelationalSchema(db);
   seedSolutionCatalog(db);
   seedDeflectionRules(db);
@@ -336,6 +338,12 @@ function setupDataLayer({ app }) {
     updateSheetRow: (sheetName, rowId, payload) => updateSheetRow(db, sheetName, rowId, payload),
     deleteSheetRow: (sheetName, rowId) => deleteSheetRow(db, sheetName, rowId),
     listRoadCatalog: (filters) => listRoadCatalog(db, filters),
+    listMeasurementCampaigns: (filters) => listMeasurementCampaigns(db, filters),
+    listRoadMeasurements: (filters) => listRoadMeasurements(db, filters),
+    upsertMeasurementCampaign: (payload) => upsertMeasurementCampaign(db, payload),
+    deleteMeasurementCampaign: (campaignId) => deleteMeasurementCampaign(db, campaignId),
+    upsertRoadMeasurement: (payload) => upsertRoadMeasurement(db, payload),
+    deleteRoadMeasurement: (measurementId) => deleteRoadMeasurement(db, measurementId),
     listSapSectors: () => listSapSectors(db),
     listDegradationCatalog: () => listDegradationCatalog(db),
     listDrainageRules: () => listDrainageRules(db),
@@ -451,10 +459,14 @@ function migrateLegacySchema(db) {
       "measurement_key TEXT NOT NULL DEFAULT ''",
       "source_sheet TEXT NOT NULL DEFAULT ''",
       "source_row_no INTEGER NOT NULL DEFAULT 0",
+      "campaign_key TEXT NOT NULL DEFAULT ''",
+      "measurement_date TEXT NOT NULL DEFAULT ''",
       "road_id INTEGER",
       "road_key TEXT NOT NULL DEFAULT ''",
       "road_code TEXT NOT NULL DEFAULT ''",
       "designation TEXT NOT NULL DEFAULT ''",
+      "start_label TEXT NOT NULL DEFAULT ''",
+      "end_label TEXT NOT NULL DEFAULT ''",
       "pk_label TEXT NOT NULL DEFAULT ''",
       "pk_m REAL",
       "lecture_left REAL",
@@ -659,6 +671,22 @@ function ensureSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_road_sap ON road(sap_code);
     CREATE INDEX IF NOT EXISTS idx_road_code ON road(road_code);
 
+    CREATE TABLE IF NOT EXISTS road_alias (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      road_id INTEGER,
+      road_key TEXT NOT NULL DEFAULT '',
+      alias_key TEXT NOT NULL DEFAULT '',
+      alias_text TEXT NOT NULL DEFAULT '',
+      alias_type TEXT NOT NULL DEFAULT '',
+      source_sheet TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (road_id) REFERENCES road(id) ON DELETE CASCADE,
+      UNIQUE(road_key, alias_key)
+    );
+    CREATE INDEX IF NOT EXISTS idx_road_alias_road_id ON road_alias(road_id);
+    CREATE INDEX IF NOT EXISTS idx_road_alias_key ON road_alias(alias_key);
+
     CREATE TABLE IF NOT EXISTS degradation (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       degradation_code TEXT NOT NULL UNIQUE,
@@ -720,15 +748,42 @@ function ensureSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_road_section_sap ON road_section(sap_code);
     CREATE INDEX IF NOT EXISTS idx_road_section_source ON road_section(source_sheet, source_row_no);
 
-    CREATE TABLE IF NOT EXISTS road_measurement (
+    CREATE TABLE IF NOT EXISTS measurement_campaign (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      measurement_key TEXT NOT NULL UNIQUE,
+      campaign_key TEXT NOT NULL UNIQUE,
       source_sheet TEXT NOT NULL DEFAULT 'Feuil1',
       source_row_no INTEGER NOT NULL DEFAULT 0,
       road_id INTEGER,
       road_key TEXT NOT NULL DEFAULT '',
       road_code TEXT NOT NULL DEFAULT '',
       designation TEXT NOT NULL DEFAULT '',
+      section_label TEXT NOT NULL DEFAULT '',
+      start_label TEXT NOT NULL DEFAULT '',
+      end_label TEXT NOT NULL DEFAULT '',
+      measurement_date TEXT NOT NULL DEFAULT '',
+      pk_start_m REAL,
+      pk_end_m REAL,
+      source_payload TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (road_id) REFERENCES road(id) ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_measurement_campaign_road_id ON measurement_campaign(road_id);
+    CREATE INDEX IF NOT EXISTS idx_measurement_campaign_date ON measurement_campaign(measurement_date);
+
+    CREATE TABLE IF NOT EXISTS road_measurement (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      measurement_key TEXT NOT NULL UNIQUE,
+      source_sheet TEXT NOT NULL DEFAULT 'Feuil1',
+      source_row_no INTEGER NOT NULL DEFAULT 0,
+      campaign_key TEXT NOT NULL DEFAULT '',
+      measurement_date TEXT NOT NULL DEFAULT '',
+      road_id INTEGER,
+      road_key TEXT NOT NULL DEFAULT '',
+      road_code TEXT NOT NULL DEFAULT '',
+      designation TEXT NOT NULL DEFAULT '',
+      start_label TEXT NOT NULL DEFAULT '',
+      end_label TEXT NOT NULL DEFAULT '',
       pk_label TEXT NOT NULL DEFAULT '',
       pk_m REAL,
       lecture_left REAL,
@@ -748,6 +803,7 @@ function ensureSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_road_measurement_road_id ON road_measurement(road_id);
     CREATE INDEX IF NOT EXISTS idx_road_measurement_pk ON road_measurement(pk_m);
     CREATE INDEX IF NOT EXISTS idx_road_measurement_source ON road_measurement(source_sheet, source_row_no);
+    CREATE INDEX IF NOT EXISTS idx_road_measurement_campaign ON road_measurement(campaign_key);
 
     CREATE TABLE IF NOT EXISTS decision_profile_input (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1170,9 +1226,12 @@ function resolveSheet(sheetName) {
 
 function rebuildNormalizedCatalogs(db) {
   const roads = buildRoadCatalog(db);
+  const roadAliases = buildRoadAliasCatalog(db, roads);
   const degradationItems = buildDegradationCatalog(db);
   const roadSections = buildRoadSectionCatalog(db);
-  const roadMeasurements = buildRoadMeasurementCatalog(db);
+  const measurementCatalog = buildRoadMeasurementCatalog(db);
+  const roadMeasurements = measurementCatalog.items;
+  const measurementCampaigns = measurementCatalog.campaigns;
   const decisionInputs = buildDecisionProfileInputs(db);
   const degradationDefinitions = buildDegradationDefinitions(db);
 
@@ -1259,6 +1318,8 @@ function rebuildNormalizedCatalogs(db) {
       db.prepare("DELETE FROM road").run();
     }
 
+    syncRoadAliases(db, roadAliases);
+
     for (const item of degradationItems) {
       db.prepare(
         `
@@ -1311,6 +1372,7 @@ function rebuildNormalizedCatalogs(db) {
 
     const roadLookup = buildRoadLookupMaps(db);
     syncRoadSections(db, roadSections, roadLookup);
+    syncMeasurementCampaigns(db, measurementCampaigns, roadLookup);
     syncRoadMeasurements(db, roadMeasurements, roadLookup);
     syncDecisionProfileInputs(db, decisionInputs);
 
@@ -1328,6 +1390,68 @@ function rebuildNormalizedCatalogs(db) {
   tx();
 }
 
+function syncRoadAliases(db, aliases) {
+  const roadByKey = new Map(
+    db
+      .prepare(
+        `
+        SELECT
+          id,
+          road_key AS roadKey
+        FROM road
+      `
+      )
+      .all()
+      .map((row) => [toText(row.roadKey), Number(row.id)])
+  );
+
+  const upsert = db.prepare(`
+    INSERT INTO road_alias (
+      road_id,
+      road_key,
+      alias_key,
+      alias_text,
+      alias_type,
+      source_sheet
+    ) VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(road_key, alias_key) DO UPDATE SET
+      road_id = excluded.road_id,
+      alias_text = excluded.alias_text,
+      alias_type = excluded.alias_type,
+      source_sheet = excluded.source_sheet,
+      updated_at = datetime('now')
+  `);
+
+  const keepPairs = [];
+  for (const alias of aliases) {
+    const roadKey = toText(alias.roadKey);
+    const aliasKey = toText(alias.aliasKey);
+    if (!roadKey || !aliasKey) {
+      continue;
+    }
+
+    keepPairs.push({ roadKey, aliasKey });
+    const roadId = roadByKey.get(roadKey);
+
+    upsert.run(
+      Number.isFinite(roadId) ? roadId : null,
+      roadKey,
+      aliasKey,
+      toText(alias.aliasText),
+      toText(alias.aliasType),
+      toText(alias.sourceSheet)
+    );
+  }
+
+  if (keepPairs.length > 0) {
+    const conditions = keepPairs.map(() => "(road_key = ? AND alias_key = ?)").join(" OR ");
+    const params = keepPairs.flatMap((pair) => [pair.roadKey, pair.aliasKey]);
+    db.prepare(`DELETE FROM road_alias WHERE NOT (${conditions})`).run(...params);
+  } else {
+    db.prepare("DELETE FROM road_alias").run();
+  }
+}
+
 function buildRoadLookupMaps(db) {
   const rows = db
     .prepare(
@@ -1343,31 +1467,56 @@ function buildRoadLookupMaps(db) {
     )
     .all();
 
+  const aliasRows = db
+    .prepare(
+      `
+      SELECT
+        a.alias_key AS aliasKey,
+        r.id,
+        r.road_key AS roadKey,
+        r.road_code AS roadCode,
+        r.designation,
+        COALESCE(r.sap_code, '') AS sapCode,
+        r.start_label AS startLabel,
+        r.end_label AS endLabel
+      FROM road_alias a
+      INNER JOIN road r ON r.road_key = a.road_key
+    `
+    )
+    .all();
+
   const byKey = new Map();
   const byCode = new Map();
   const byDesignation = new Map();
+  const byAlias = new Map();
+  const byBounds = new Map();
 
   for (const row of rows) {
     const key = toText(row.roadKey);
     const code = normalizeRoadCode(row.roadCode);
     const designation = normalizeText(row.designation);
     const simplifiedDesignation = normalizeText(simplifyRoadDesignation(row.designation));
+    const boundsKey = makeRoadBoundsLookupKey(row.designation, row.startLabel, row.endLabel);
 
     if (key && !byKey.has(key)) {
       byKey.set(key, row);
     }
-    if (code && !byCode.has(code)) {
-      byCode.set(code, row);
-    }
-    if (designation && !byDesignation.has(designation)) {
-      byDesignation.set(designation, row);
-    }
-    if (simplifiedDesignation && !byDesignation.has(simplifiedDesignation)) {
-      byDesignation.set(simplifiedDesignation, row);
-    }
+    setUniqueRoadLookup(byCode, code, row);
+    setUniqueRoadLookup(byDesignation, designation, row);
+    setUniqueRoadLookup(byDesignation, simplifiedDesignation, row);
+    setUniqueRoadLookup(byBounds, boundsKey, row);
   }
 
-  return { byKey, byCode, byDesignation };
+  for (const row of aliasRows) {
+    const aliasKey = toText(row.aliasKey);
+    if (aliasKey.startsWith("BOUNDS:")) {
+      setUniqueRoadLookup(byBounds, aliasKey, row);
+      continue;
+    }
+    setUniqueRoadLookup(byAlias, aliasKey, row);
+  }
+
+  return { byKey, byCode, byDesignation, byAlias, byBounds };
 }
 
 function resolveRoadRef(entry, roadLookup) {
@@ -1379,6 +1528,25 @@ function resolveRoadRef(entry, roadLookup) {
   const roadCode = normalizeRoadCode(entry.roadCode);
   if (roadCode && roadLookup.byCode.has(roadCode)) {
     return roadLookup.byCode.get(roadCode);
+  }
+
+  const boundsKey = makeRoadBoundsLookupKey(entry.designation || entry.sectionLabel, entry.startLabel, entry.endLabel);
+  if (boundsKey && roadLookup.byBounds.has(boundsKey)) {
+    const road = roadLookup.byBounds.get(boundsKey);
+    if (road) {
+      return road;
+    }
+  }
+
+  const aliasCandidates = [entry.sectionLabel, entry.designation, simplifyRoadDesignation(entry.designation)];
+  for (const candidate of aliasCandidates) {
+    const aliasKey = makeRoadTextAliasKey(candidate);
+    if (aliasKey && roadLookup.byAlias.has(aliasKey)) {
+      const road = roadLookup.byAlias.get(aliasKey);
+      if (road) {
+        return road;
+      }
+    }
   }
 
   const designation = normalizeText(entry.designation);
@@ -1485,16 +1653,93 @@ function syncRoadSections(db, sections, roadLookup) {
   }
 }
 
-function syncRoadMeasurements(db, measurements, roadLookup) {
+function syncMeasurementCampaigns(db, campaigns, roadLookup) {
   const upsert = db.prepare(`
-    INSERT INTO road_measurement (
-      measurement_key,
+    INSERT INTO measurement_campaign (
+      campaign_key,
       source_sheet,
       source_row_no,
       road_id,
       road_key,
       road_code,
       designation,
+      section_label,
+      start_label,
+      end_label,
+      measurement_date,
+      pk_start_m,
+      pk_end_m,
+      source_payload
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(campaign_key) DO UPDATE SET
+      source_sheet = excluded.source_sheet,
+      source_row_no = excluded.source_row_no,
+      road_id = excluded.road_id,
+      road_key = excluded.road_key,
+      road_code = excluded.road_code,
+      designation = excluded.designation,
+      section_label = excluded.section_label,
+      start_label = excluded.start_label,
+      end_label = excluded.end_label,
+      measurement_date = excluded.measurement_date,
+      pk_start_m = excluded.pk_start_m,
+      pk_end_m = excluded.pk_end_m,
+      source_payload = excluded.source_payload,
+      updated_at = datetime('now')
+  `);
+
+  const keepKeys = [];
+  for (const campaign of campaigns) {
+    const roadRef = resolveRoadRef(campaign, roadLookup);
+    const roadId = roadRef ? Number(roadRef.id) : null;
+    const campaignKey = toText(campaign.campaignKey);
+    keepKeys.push(campaignKey);
+
+    upsert.run(
+      campaignKey,
+      toText(campaign.sourceSheet) || "Feuil1",
+      Number(campaign.sourceRowNo) || 0,
+      Number.isFinite(roadId) ? roadId : null,
+      toText(campaign.roadKey) || toText(roadRef?.roadKey),
+      toText(campaign.roadCode) || toText(roadRef?.roadCode),
+      toText(campaign.designation) || toText(roadRef?.designation),
+      toText(campaign.sectionLabel),
+      toText(campaign.startLabel) || toText(roadRef?.startLabel),
+      toText(campaign.endLabel) || toText(roadRef?.endLabel),
+      toText(campaign.measurementDate),
+      toNumber(campaign.pkStartM),
+      toNumber(campaign.pkEndM),
+      toText(campaign.sourcePayload)
+    );
+  }
+
+  if (keepKeys.length > 0) {
+    db.prepare(
+      `
+      DELETE FROM measurement_campaign
+      WHERE source_sheet = 'Feuil1'
+        AND campaign_key NOT IN (${keepKeys.map(() => "?").join(", ")})
+    `
+    ).run(...keepKeys);
+  } else {
+    db.prepare("DELETE FROM measurement_campaign WHERE source_sheet = 'Feuil1'").run();
+  }
+}
+
+function syncRoadMeasurements(db, measurements, roadLookup) {
+  const upsert = db.prepare(`
+    INSERT INTO road_measurement (
+      measurement_key,
+      source_sheet,
+      source_row_no,
+      campaign_key,
+      measurement_date,
+      road_id,
+      road_key,
+      road_code,
+      designation,
+      start_label,
+      end_label,
       pk_label,
       pk_m,
       lecture_left,
@@ -1507,14 +1752,18 @@ function syncRoadMeasurements(db, measurements, roadLookup) {
       std_dev,
       deflection_dc,
       source_payload
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(measurement_key) DO UPDATE SET
       source_sheet = excluded.source_sheet,
       source_row_no = excluded.source_row_no,
+      campaign_key = excluded.campaign_key,
+      measurement_date = excluded.measurement_date,
       road_id = excluded.road_id,
       road_key = excluded.road_key,
       road_code = excluded.road_code,
       designation = excluded.designation,
+      start_label = excluded.start_label,
+      end_label = excluded.end_label,
       pk_label = excluded.pk_label,
       pk_m = excluded.pk_m,
       lecture_left = excluded.lecture_left,
@@ -1541,10 +1790,14 @@ function syncRoadMeasurements(db, measurements, roadLookup) {
       measurementKey,
       toText(item.sourceSheet) || "Feuil1",
       Number(item.sourceRowNo) || 0,
+      toText(item.campaignKey),
+      toText(item.measurementDate),
       Number.isFinite(roadId) ? roadId : null,
-      toText(item.roadKey),
-      toText(item.roadCode),
-      toText(item.designation),
+      toText(item.roadKey) || toText(roadRef?.roadKey),
+      toText(item.roadCode) || toText(roadRef?.roadCode),
+      toText(item.designation) || toText(roadRef?.designation),
+      toText(item.startLabel) || toText(roadRef?.startLabel),
+      toText(item.endLabel) || toText(roadRef?.endLabel),
       toText(item.pkLabel),
       toNumber(item.pkM),
       toNumber(item.lectureLeft),
@@ -1564,11 +1817,12 @@ function syncRoadMeasurements(db, measurements, roadLookup) {
     db.prepare(
       `
       DELETE FROM road_measurement
-      WHERE measurement_key NOT IN (${keepKeys.map(() => "?").join(", ")})
+      WHERE source_sheet = 'Feuil1'
+        AND measurement_key NOT IN (${keepKeys.map(() => "?").join(", ")})
     `
     ).run(...keepKeys);
   } else {
-    db.prepare("DELETE FROM road_measurement").run();
+    db.prepare("DELETE FROM road_measurement WHERE source_sheet = 'Feuil1'").run();
   }
 }
 
@@ -1660,7 +1914,181 @@ function buildRoadSectionCatalog(db) {
   const rowsFeuil3 = listSheetRows(db, "Feuil3", { limit: 5000 });
   const rowsFeuil5 = listSheetRows(db, "Feuil5", { limit: 5000 });
 
-  const sections = [];
+  const sectionsByKey = new Map();
+  const sectionNoIndex = new Map();
+  const boundsIndex = new Map();
+
+  function buildCanonicalSectionKey(entry) {
+    const roadKey = toText(entry.roadKey);
+    const sectionNo = normalizeText(entry.sectionNo).replace(/[^A-Z0-9]+/g, "_");
+    const boundsKey = makeRoadBoundsLookupKey(entry.designation, entry.startLabel, entry.endLabel);
+    const sectionIndexKey = roadKey && sectionNo ? `${roadKey}::SECTION:${sectionNo}` : "";
+    const boundsIndexKey = roadKey && boundsKey ? `${roadKey}::${boundsKey}` : "";
+
+    if (sectionIndexKey && sectionNoIndex.has(sectionIndexKey)) {
+      return sectionNoIndex.get(sectionIndexKey);
+    }
+    if (boundsIndexKey && boundsIndex.has(boundsIndexKey)) {
+      return boundsIndex.get(boundsIndexKey);
+    }
+    if (sectionIndexKey) {
+      return sectionIndexKey;
+    }
+    if (roadKey && boundsKey) {
+      return `${roadKey}::${boundsKey}`;
+    }
+    if (roadKey) {
+      return `${roadKey}::DERIVED:${toText(entry.sourceSheet)}:${Number(entry.sourceRowNo) || 0}`;
+    }
+    return `SECTION::${toText(entry.sourceSheet)}:${Number(entry.sourceRowNo) || 0}`;
+  }
+
+  function indexSection(entry, canonicalKey) {
+    const roadKey = toText(entry.roadKey);
+    const sectionNo = normalizeText(entry.sectionNo).replace(/[^A-Z0-9]+/g, "_");
+    const boundsKey = makeRoadBoundsLookupKey(entry.designation, entry.startLabel, entry.endLabel);
+
+    if (roadKey && sectionNo) {
+      sectionNoIndex.set(`${roadKey}::SECTION:${sectionNo}`, canonicalKey);
+    }
+    if (roadKey && boundsKey) {
+      boundsIndex.set(`${roadKey}::${boundsKey}`, canonicalKey);
+    }
+  }
+
+  function setIfPresent(target, key, value) {
+    if (value === null || value === undefined) {
+      return;
+    }
+    if (typeof value === "number") {
+      if (Number.isFinite(value)) {
+        target[key] = value;
+      }
+      return;
+    }
+    const text = toText(value);
+    if (text) {
+      target[key] = text;
+    }
+  }
+
+  function setIfMissing(target, key, value) {
+    const current = target[key];
+    if (current !== null && current !== undefined && current !== "") {
+      return;
+    }
+    setIfPresent(target, key, value);
+  }
+
+  function mergeSectionEntry(entry) {
+    const canonicalKey = buildCanonicalSectionKey(entry);
+    let current = sectionsByKey.get(canonicalKey);
+
+    if (!current) {
+      current = {
+        sectionKey: canonicalKey,
+        sourceSheet: toText(entry.sourceSheet),
+        sourceRowNo: Number(entry.sourceRowNo) || 0,
+        tronconNo: toText(entry.tronconNo),
+        sectionNo: toText(entry.sectionNo),
+        roadKey: toText(entry.roadKey),
+        sapCode: toText(entry.sapCode),
+        roadCode: toText(entry.roadCode),
+        designation: toText(entry.designation),
+        startLabel: toText(entry.startLabel),
+        endLabel: toText(entry.endLabel),
+        lengthM: toNumber(entry.lengthM),
+        widthM: toNumber(entry.widthM),
+        surfaceType: toText(entry.surfaceType),
+        pavementState: toText(entry.pavementState),
+        drainageType: toText(entry.drainageType),
+        drainageState: toText(entry.drainageState),
+        sidewalkMinM: toNumber(entry.sidewalkMinM),
+        interventionHint: toText(entry.interventionHint),
+        sourcePayload: safeJson({
+          primarySource: toText(entry.sourceSheet),
+          sources: {
+            [toText(entry.sourceSheet)]: {
+              rowNo: Number(entry.sourceRowNo) || 0,
+              payload: entry.sourcePayload ? JSON.parse(entry.sourcePayload) : {}
+            }
+          }
+        })
+      };
+      sectionsByKey.set(canonicalKey, current);
+      indexSection(entry, canonicalKey);
+      return;
+    }
+
+    setIfMissing(current, "tronconNo", entry.tronconNo);
+    setIfMissing(current, "sectionNo", entry.sectionNo);
+    setIfMissing(current, "sapCode", entry.sapCode);
+    setIfMissing(current, "roadCode", entry.roadCode);
+    setIfMissing(current, "designation", entry.designation);
+    setIfMissing(current, "startLabel", entry.startLabel);
+    setIfMissing(current, "endLabel", entry.endLabel);
+    if (current.lengthM === null) {
+      current.lengthM = toNumber(entry.lengthM);
+    }
+
+    if (toText(entry.sourceSheet) === "Feuil5") {
+      if (current.widthM === null) {
+        current.widthM = toNumber(entry.widthM);
+      }
+      setIfMissing(current, "surfaceType", entry.surfaceType);
+      setIfMissing(current, "pavementState", entry.pavementState);
+      setIfMissing(current, "drainageType", entry.drainageType);
+      setIfMissing(current, "drainageState", entry.drainageState);
+      if (current.sidewalkMinM === null) {
+        current.sidewalkMinM = toNumber(entry.sidewalkMinM);
+      }
+    }
+
+    if (toText(entry.sourceSheet) === "Feuil3") {
+      const widthM = toNumber(entry.widthM);
+      const sidewalkMinM = toNumber(entry.sidewalkMinM);
+      if (widthM !== null) {
+        current.widthM = widthM;
+      }
+      setIfPresent(current, "surfaceType", entry.surfaceType);
+      setIfPresent(current, "pavementState", entry.pavementState);
+      setIfPresent(current, "drainageType", entry.drainageType);
+      setIfPresent(current, "drainageState", entry.drainageState);
+      if (sidewalkMinM !== null) {
+        current.sidewalkMinM = sidewalkMinM;
+      }
+      setIfPresent(current, "interventionHint", entry.interventionHint);
+    }
+
+    try {
+      const currentPayload = current.sourcePayload ? JSON.parse(current.sourcePayload) : {};
+      const nextSources = {
+        ...(currentPayload.sources || {}),
+        [toText(entry.sourceSheet)]: {
+          rowNo: Number(entry.sourceRowNo) || 0,
+          payload: entry.sourcePayload ? JSON.parse(entry.sourcePayload) : {}
+        }
+      };
+      current.sourcePayload = safeJson({
+        primarySource: currentPayload.primarySource || current.sourceSheet,
+        sources: nextSources
+      });
+    } catch {
+      current.sourcePayload = safeJson({
+        primarySource: current.sourceSheet,
+        sources: {
+          [current.sourceSheet]: {
+            rowNo: Number(current.sourceRowNo) || 0
+          },
+          [toText(entry.sourceSheet)]: {
+            rowNo: Number(entry.sourceRowNo) || 0
+          }
+        }
+      });
+    }
+
+    indexSection(current, canonicalKey);
+  }
 
   for (const row of rowsFeuil2) {
     const roadCode = toText(row.C);
@@ -1669,8 +2097,8 @@ function buildRoadSectionCatalog(db) {
       continue;
     }
     const roadKey = makeRoadKey(roadCode, designation);
-    sections.push({
-      sectionKey: `FEUIL2:${row.rowNo}:${roadKey}`,
+    mergeSectionEntry({
+      sectionKey: "",
       sourceSheet: "Feuil2",
       sourceRowNo: Number(row.rowNo) || 0,
       tronconNo: toText(row.A),
@@ -1700,8 +2128,8 @@ function buildRoadSectionCatalog(db) {
       continue;
     }
     const roadKey = makeRoadKey(roadCode, designation);
-    sections.push({
-      sectionKey: `FEUIL5:${row.rowNo}:${roadKey}`,
+    mergeSectionEntry({
+      sectionKey: "",
       sourceSheet: "Feuil5",
       sourceRowNo: Number(row.rowNo) || 0,
       tronconNo: toText(row.A),
@@ -1731,8 +2159,8 @@ function buildRoadSectionCatalog(db) {
       continue;
     }
     const roadKey = makeRoadKey(roadCode, designation);
-    sections.push({
-      sectionKey: `FEUIL3:${row.rowNo}:${roadKey}`,
+    mergeSectionEntry({
+      sectionKey: "",
       sourceSheet: "Feuil3",
       sourceRowNo: Number(row.rowNo) || 0,
       tronconNo: "",
@@ -1755,18 +2183,51 @@ function buildRoadSectionCatalog(db) {
     });
   }
 
-  return sections;
+  return [...sectionsByKey.values()];
 }
 
 function buildRoadMeasurementCatalog(db) {
   const rows = listSheetRows(db, "Feuil1", { limit: 10000 });
   const items = [];
-  let currentDesignation = "";
+  const campaignsByKey = new Map();
+  let reportTitle = "";
+  let currentContext = {
+    sourceRowNo: 0,
+    sectionLabel: "",
+    designation: "",
+    startLabel: "",
+    endLabel: "",
+    measurementDate: "",
+    pkStartM: null,
+    pkEndM: null
+  };
 
   for (const row of rows) {
-    const designationCandidate = resolveMeasurementDesignationCandidate(row);
-    if (designationCandidate) {
-      currentDesignation = designationCandidate;
+    const titleCandidate = resolveMeasurementReportTitle(row);
+    if (titleCandidate) {
+      reportTitle = titleCandidate;
+    }
+
+    const roadContext = resolveMeasurementRoadContext(row);
+    if (roadContext.sectionLabel) {
+      currentContext = {
+        ...currentContext,
+        sourceRowNo: Number(row.rowNo) || 0,
+        sectionLabel: roadContext.sectionLabel,
+        designation: roadContext.designation,
+        startLabel: roadContext.startLabel,
+        endLabel: roadContext.endLabel,
+        pkStartM: roadContext.pkStartM,
+        pkEndM: roadContext.pkEndM
+      };
+    }
+
+    const measurementDate = extractMeasurementDate(row);
+    if (measurementDate) {
+      currentContext = {
+        ...currentContext,
+        measurementDate
+      };
     }
 
     const pkLecture = toText(row.A);
@@ -1780,17 +2241,57 @@ function buildRoadMeasurementCatalog(db) {
       continue;
     }
 
-    const designation = simplifyRoadDesignation(currentDesignation);
+    const designation = simplifyRoadDesignation(currentContext.designation);
     const roadKey = designation ? makeRoadKey("", designation) : "";
     const pkM = toNumber(pkDeflection) ?? toNumber(pkLecture);
+    const campaignKey = buildMeasurementCampaignKey(currentContext);
+
+    if (campaignKey) {
+      if (!campaignsByKey.has(campaignKey)) {
+        campaignsByKey.set(campaignKey, {
+          campaignKey,
+          sourceSheet: "Feuil1",
+          sourceRowNo: Number(currentContext.sourceRowNo) || Number(row.rowNo) || 0,
+          roadKey,
+          roadCode: "",
+          designation,
+          sectionLabel: toText(currentContext.sectionLabel),
+          startLabel: toText(currentContext.startLabel),
+          endLabel: toText(currentContext.endLabel),
+          measurementDate: toText(currentContext.measurementDate),
+          pkStartM: currentContext.pkStartM,
+          pkEndM: currentContext.pkEndM,
+          sourcePayload: safeJson({
+            reportTitle,
+            sectionLabel: currentContext.sectionLabel,
+            measurementDate: currentContext.measurementDate
+          })
+        });
+      }
+
+      const campaign = campaignsByKey.get(campaignKey);
+      if (pkM !== null) {
+        if (campaign.pkStartM === null || pkM < campaign.pkStartM) {
+          campaign.pkStartM = pkM;
+        }
+        if (campaign.pkEndM === null || pkM > campaign.pkEndM) {
+          campaign.pkEndM = pkM;
+        }
+      }
+    }
 
     items.push({
-      measurementKey: `FEUIL1:${row.rowNo}`,
+      measurementKey: `FEUIL1:${row.rowNo}:${campaignKey || "NO_CAMPAIGN"}`,
       sourceSheet: "Feuil1",
       sourceRowNo: Number(row.rowNo) || 0,
+      campaignKey,
+      measurementDate: toText(currentContext.measurementDate),
       roadKey,
       roadCode: "",
       designation,
+      startLabel: toText(currentContext.startLabel),
+      endLabel: toText(currentContext.endLabel),
+      sectionLabel: toText(currentContext.sectionLabel),
       pkLabel: pkDeflection || pkLecture,
       pkM,
       lectureLeft: toNumber(row.B),
@@ -1806,18 +2307,100 @@ function buildRoadMeasurementCatalog(db) {
     });
   }
 
-  return items;
+  return {
+    campaigns: [...campaignsByKey.values()],
+    items
+  };
 }
 
-function resolveMeasurementDesignationCandidate(row) {
-  const candidates = [row.B, row.A, row.E];
+function resolveMeasurementReportTitle(row) {
+  const candidates = [row.A, row.B];
   for (const candidate of candidates) {
-    const cleaned = simplifyRoadDesignation(candidate);
-    if (isRoadDesignationText(cleaned)) {
-      return cleaned;
+    const text = toText(candidate);
+    if (/MESURE\s+DES\s+DEFLEXIONS/i.test(text)) {
+      return text;
     }
   }
   return "";
+}
+
+function resolveMeasurementRoadContext(row) {
+  const candidates = [row.B, row.A, row.E];
+  for (const candidate of candidates) {
+    const text = toText(candidate);
+    const designation = simplifyRoadDesignation(text);
+    if (!isRoadDesignationText(designation)) {
+      continue;
+    }
+
+    const bounds = extractMeasurementBounds(text);
+    return {
+      sectionLabel: text,
+      designation,
+      startLabel: bounds.startLabel,
+      endLabel: bounds.endLabel,
+      pkStartM: bounds.pkStartM,
+      pkEndM: bounds.pkEndM
+    };
+  }
+
+  return {
+    sectionLabel: "",
+    designation: "",
+    startLabel: "",
+    endLabel: "",
+    pkStartM: null,
+    pkEndM: null
+  };
+}
+
+function extractMeasurementBounds(value) {
+  const text = toText(value);
+  const tronconMatch = text.match(/\bTRON[CÇ]ON\b\s+(.+?)\s*-\s*(.+?)(?:\s+DU\s+PK|\)|$)/i);
+  const startLabel = tronconMatch ? toText(tronconMatch[1]) : "";
+  const endLabel = tronconMatch ? toText(tronconMatch[2]) : "";
+  const pkMatch = text.match(/\bDU\s+PK\b\s*([0-9+.,]+)\s+\bAU\s+PK\b\s*([0-9+.,]+)/i);
+
+  return {
+    startLabel,
+    endLabel,
+    pkStartM: pkMatch ? parsePkDistance(pkMatch[1]) : null,
+    pkEndM: pkMatch ? parsePkDistance(pkMatch[2]) : null
+  };
+}
+
+function extractMeasurementDate(row) {
+  const values = Object.values(row).map((value) => toText(value)).filter(Boolean);
+  for (const value of values) {
+    const match = value.match(/(\d{2})[\/.-](\d{2})[\/.-](\d{4})/);
+    if (match) {
+      return `${match[3]}-${match[2]}-${match[1]}`;
+    }
+  }
+  return "";
+}
+
+function parsePkDistance(value) {
+  const text = toText(value).replace(/\s+/g, "");
+  const chainageMatch = text.match(/^(\d+)\+(\d+(?:[.,]\d+)?)$/);
+  if (chainageMatch) {
+    return Number(chainageMatch[1]) * 1000 + Number(String(chainageMatch[2]).replace(",", "."));
+  }
+  return toNumber(text);
+}
+
+function buildMeasurementCampaignKey(context) {
+  const designationKey = normalizeRoadAliasValue(context.designation);
+  const dateKey = toText(context.measurementDate) || "NO_DATE";
+  const startKey = normalizeRoadAliasValue(context.startLabel) || "NO_START";
+  const endKey = normalizeRoadAliasValue(context.endLabel) || "NO_END";
+  const rowKey = Number(context.sourceRowNo) || 0;
+
+  if (!designationKey) {
+    return rowKey ? `FEUIL1:${rowKey}:NO_ROAD:${dateKey}` : "";
+  }
+
+  return `FEUIL1:${rowKey}:${designationKey}:${startKey}:${endKey}:${dateKey}`;
 }
 
 function buildDecisionProfileInputs(db) {
@@ -1933,6 +2516,13 @@ function ensureColumnIfMissing(db, tableName, columnName, columnDefinition) {
     return;
   }
   db.prepare(`ALTER TABLE ${tableName} ADD COLUMN ${columnDefinition}`).run();
+}
+
+function ensureMeasurementRuntimeSchema(db) {
+  ensureColumnIfMissing(db, "road_measurement", "campaign_key", "campaign_key TEXT NOT NULL DEFAULT ''");
+  ensureColumnIfMissing(db, "road_measurement", "measurement_date", "measurement_date TEXT NOT NULL DEFAULT ''");
+  ensureColumnIfMissing(db, "road_measurement", "start_label", "start_label TEXT NOT NULL DEFAULT ''");
+  ensureColumnIfMissing(db, "road_measurement", "end_label", "end_label TEXT NOT NULL DEFAULT ''");
 }
 
 function isDatabaseEmpty(db) {
@@ -2635,6 +3225,725 @@ function listRoadCatalog(db, filters = {}) {
   }));
 }
 
+function listMeasurementCampaigns(db, filters = {}) {
+  ensureMeasurementRuntimeSchema(db);
+
+  const where = [];
+  const params = {};
+
+  const roadId = Number(filters.roadId);
+  if (Number.isFinite(roadId) && roadId > 0) {
+    where.push("c.road_id = @roadId");
+    params.roadId = roadId;
+  }
+
+  const search = toText(filters.search);
+  if (search) {
+    where.push(
+      `(
+        c.road_code LIKE @search OR
+        c.designation LIKE @search OR
+        c.section_label LIKE @search OR
+        COALESCE(r.sap_code, '') LIKE @search OR
+        c.measurement_date LIKE @search
+      )`
+    );
+    params.search = `%${search}%`;
+  }
+
+  const limit = Math.min(Math.max(Number(filters.limit) || 500, 1), 5000);
+  params.limit = limit;
+
+  const sql = `
+    SELECT
+      c.id,
+      c.campaign_key AS campaignKey,
+      c.road_id AS roadId,
+      c.road_key AS roadKey,
+      c.road_code AS roadCode,
+      c.designation,
+      COALESCE(r.sap_code, '') AS sapCode,
+      c.section_label AS sectionLabel,
+      c.start_label AS startLabel,
+      c.end_label AS endLabel,
+      c.measurement_date AS measurementDate,
+      c.pk_start_m AS pkStartM,
+      c.pk_end_m AS pkEndM,
+      COUNT(m.id) AS measurementCount,
+      MAX(m.deflection_dc) AS maxDeflectionDc,
+      AVG(m.deflection_dc) AS avgDeflectionDc
+    FROM measurement_campaign c
+    LEFT JOIN road r ON r.id = c.road_id
+    LEFT JOIN road_measurement m ON m.campaign_key = c.campaign_key
+    ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+    GROUP BY
+      c.id,
+      c.campaign_key,
+      c.road_id,
+      c.road_key,
+      c.road_code,
+      c.designation,
+      r.sap_code,
+      c.section_label,
+      c.start_label,
+      c.end_label,
+      c.measurement_date,
+      c.pk_start_m,
+      c.pk_end_m
+    ORDER BY c.measurement_date DESC, c.id DESC
+    LIMIT @limit
+  `;
+
+  return db.prepare(sql).all(params).map((row) => ({
+    ...row,
+    roadId: Number.isFinite(Number(row.roadId)) ? Number(row.roadId) : null,
+    pkStartM: toNumber(row.pkStartM),
+    pkEndM: toNumber(row.pkEndM),
+    measurementCount: Number(row.measurementCount) || 0,
+    maxDeflectionDc: toNumber(row.maxDeflectionDc),
+    avgDeflectionDc: toNumber(row.avgDeflectionDc)
+  }));
+}
+
+function listRoadMeasurements(db, filters = {}) {
+  ensureMeasurementRuntimeSchema(db);
+
+  const where = [];
+  const params = {};
+
+  const campaignKey = toText(filters.campaignKey);
+  if (campaignKey) {
+    where.push("campaign_key = @campaignKey");
+    params.campaignKey = campaignKey;
+  }
+
+  const roadId = Number(filters.roadId);
+  if (Number.isFinite(roadId) && roadId > 0) {
+    where.push("road_id = @roadId");
+    params.roadId = roadId;
+  }
+
+  const limit = Math.min(Math.max(Number(filters.limit) || 2000, 1), 10000);
+  params.limit = limit;
+
+  const sql = `
+    SELECT
+      id,
+      campaign_key AS campaignKey,
+      measurement_date AS measurementDate,
+      road_id AS roadId,
+      road_key AS roadKey,
+      road_code AS roadCode,
+      designation,
+      start_label AS startLabel,
+      end_label AS endLabel,
+      pk_label AS pkLabel,
+      pk_m AS pkM,
+      lecture_left AS lectureLeft,
+      lecture_axis AS lectureAxis,
+      lecture_right AS lectureRight,
+      deflection_left AS deflectionLeft,
+      deflection_axis AS deflectionAxis,
+      deflection_right AS deflectionRight,
+      deflection_avg AS deflectionAvg,
+      std_dev AS stdDev,
+      deflection_dc AS deflectionDc
+    FROM road_measurement
+    ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+    ORDER BY COALESCE(pk_m, 999999999), source_row_no, id
+    LIMIT @limit
+  `;
+
+  return db.prepare(sql).all(params).map((row) => ({
+    ...row,
+    roadId: Number.isFinite(Number(row.roadId)) ? Number(row.roadId) : null,
+    pkM: toNumber(row.pkM),
+    lectureLeft: toNumber(row.lectureLeft),
+    lectureAxis: toNumber(row.lectureAxis),
+    lectureRight: toNumber(row.lectureRight),
+    deflectionLeft: toNumber(row.deflectionLeft),
+    deflectionAxis: toNumber(row.deflectionAxis),
+    deflectionRight: toNumber(row.deflectionRight),
+    deflectionAvg: toNumber(row.deflectionAvg),
+    stdDev: toNumber(row.stdDev),
+    deflectionDc: toNumber(row.deflectionDc)
+  }));
+}
+
+function normalizeMeasurementDateInput(value) {
+  const text = toText(value);
+  if (!text) {
+    return "";
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    return text;
+  }
+  const match = text.match(/^(\d{2})[\/.-](\d{2})[\/.-](\d{4})$/);
+  if (match) {
+    return `${match[3]}-${match[2]}-${match[1]}`;
+  }
+  return "";
+}
+
+function normalizeMeasurementPkKey(value) {
+  return toText(value).replace(/\s+/g, "").replace(",", ".").toUpperCase();
+}
+
+function formatMeasurementPkLabel(value) {
+  const numeric = toNumber(value);
+  if (numeric === null) {
+    return "";
+  }
+  return numeric.toFixed(3);
+}
+
+function makeManualMeasurementCampaignKey(road, measurementDate) {
+  const roadKey = normalizeRoadAliasValue(road?.designation || road?.roadCode || String(road?.id || ""));
+  const dateKey = toText(measurementDate) || "NO_DATE";
+  const entropy = `${Date.now()}${Math.random().toString(36).slice(2, 8)}`;
+  return `MANUAL:${roadKey || "NO_ROAD"}:${dateKey}:${entropy}`;
+}
+
+function makeManualMeasurementKey(campaignKey, pkLabel) {
+  const pkKey = normalizeMeasurementPkKey(pkLabel) || "NO_PK";
+  const entropy = `${Date.now()}${Math.random().toString(36).slice(2, 8)}`;
+  return `MANUAL:${campaignKey}:${pkKey}:${entropy}`;
+}
+
+function getRoadForMeasurement(db, roadId) {
+  const normalizedRoadId = Number(roadId);
+  if (!Number.isFinite(normalizedRoadId) || normalizedRoadId <= 0) {
+    return null;
+  }
+  return (
+    db
+      .prepare(
+        `
+        SELECT
+          id,
+          road_key AS roadKey,
+          road_code AS roadCode,
+          designation,
+          COALESCE(sap_code, '') AS sapCode,
+          COALESCE(start_label, '') AS startLabel,
+          COALESCE(end_label, '') AS endLabel
+        FROM road
+        WHERE id = ?
+      `
+      )
+      .get(normalizedRoadId) || null
+  );
+}
+
+function getMeasurementCampaignRecordById(db, campaignId) {
+  const normalizedCampaignId = Number(campaignId);
+  if (!Number.isFinite(normalizedCampaignId) || normalizedCampaignId <= 0) {
+    return null;
+  }
+  return db.prepare("SELECT * FROM measurement_campaign WHERE id = ?").get(normalizedCampaignId) || null;
+}
+
+function getMeasurementCampaignRecordByKey(db, campaignKey) {
+  const normalizedKey = toText(campaignKey);
+  if (!normalizedKey) {
+    return null;
+  }
+  return db.prepare("SELECT * FROM measurement_campaign WHERE campaign_key = ?").get(normalizedKey) || null;
+}
+
+function getMeasurementCampaignItemById(db, campaignId) {
+  const normalizedCampaignId = Number(campaignId);
+  if (!Number.isFinite(normalizedCampaignId) || normalizedCampaignId <= 0) {
+    return null;
+  }
+
+  const row = db
+    .prepare(
+      `
+      SELECT
+        c.id,
+        c.campaign_key AS campaignKey,
+        c.road_id AS roadId,
+        c.road_key AS roadKey,
+        c.road_code AS roadCode,
+        c.designation,
+        COALESCE(r.sap_code, '') AS sapCode,
+        c.section_label AS sectionLabel,
+        c.start_label AS startLabel,
+        c.end_label AS endLabel,
+        c.measurement_date AS measurementDate,
+        c.pk_start_m AS pkStartM,
+        c.pk_end_m AS pkEndM,
+        COUNT(m.id) AS measurementCount,
+        MAX(m.deflection_dc) AS maxDeflectionDc,
+        AVG(m.deflection_dc) AS avgDeflectionDc
+      FROM measurement_campaign c
+      LEFT JOIN road r ON r.id = c.road_id
+      LEFT JOIN road_measurement m ON m.campaign_key = c.campaign_key
+      WHERE c.id = @campaignId
+      GROUP BY
+        c.id,
+        c.campaign_key,
+        c.road_id,
+        c.road_key,
+        c.road_code,
+        c.designation,
+        r.sap_code,
+        c.section_label,
+        c.start_label,
+        c.end_label,
+        c.measurement_date,
+        c.pk_start_m,
+        c.pk_end_m
+    `
+    )
+    .get({ campaignId: normalizedCampaignId });
+
+  if (!row) {
+    return null;
+  }
+
+  return {
+    ...row,
+    roadId: Number.isFinite(Number(row.roadId)) ? Number(row.roadId) : null,
+    pkStartM: toNumber(row.pkStartM),
+    pkEndM: toNumber(row.pkEndM),
+    measurementCount: Number(row.measurementCount) || 0,
+    maxDeflectionDc: toNumber(row.maxDeflectionDc),
+    avgDeflectionDc: toNumber(row.avgDeflectionDc)
+  };
+}
+
+function getRoadMeasurementRecordById(db, measurementId) {
+  const normalizedMeasurementId = Number(measurementId);
+  if (!Number.isFinite(normalizedMeasurementId) || normalizedMeasurementId <= 0) {
+    return null;
+  }
+  return db.prepare("SELECT * FROM road_measurement WHERE id = ?").get(normalizedMeasurementId) || null;
+}
+
+function getRoadMeasurementItemById(db, measurementId) {
+  const normalizedMeasurementId = Number(measurementId);
+  if (!Number.isFinite(normalizedMeasurementId) || normalizedMeasurementId <= 0) {
+    return null;
+  }
+
+  const row = db
+    .prepare(
+      `
+      SELECT
+        id,
+        campaign_key AS campaignKey,
+        measurement_date AS measurementDate,
+        road_id AS roadId,
+        road_key AS roadKey,
+        road_code AS roadCode,
+        designation,
+        start_label AS startLabel,
+        end_label AS endLabel,
+        pk_label AS pkLabel,
+        pk_m AS pkM,
+        lecture_left AS lectureLeft,
+        lecture_axis AS lectureAxis,
+        lecture_right AS lectureRight,
+        deflection_left AS deflectionLeft,
+        deflection_axis AS deflectionAxis,
+        deflection_right AS deflectionRight,
+        deflection_avg AS deflectionAvg,
+        std_dev AS stdDev,
+        deflection_dc AS deflectionDc
+      FROM road_measurement
+      WHERE id = ?
+    `
+    )
+    .get(normalizedMeasurementId);
+
+  if (!row) {
+    return null;
+  }
+
+  return {
+    ...row,
+    roadId: Number.isFinite(Number(row.roadId)) ? Number(row.roadId) : null,
+    pkM: toNumber(row.pkM),
+    lectureLeft: toNumber(row.lectureLeft),
+    lectureAxis: toNumber(row.lectureAxis),
+    lectureRight: toNumber(row.lectureRight),
+    deflectionLeft: toNumber(row.deflectionLeft),
+    deflectionAxis: toNumber(row.deflectionAxis),
+    deflectionRight: toNumber(row.deflectionRight),
+    deflectionAvg: toNumber(row.deflectionAvg),
+    stdDev: toNumber(row.stdDev),
+    deflectionDc: toNumber(row.deflectionDc)
+  };
+}
+
+function assertMeasurementCampaignPayload(payload) {
+  const sectionLabel = toText(payload.sectionLabel);
+  const startLabel = toText(payload.startLabel);
+  const endLabel = toText(payload.endLabel);
+  const measurementDate = normalizeMeasurementDateInput(payload.measurementDate);
+  const pkStartM = payload.pkStartM === "" || payload.pkStartM == null ? null : toNumber(payload.pkStartM);
+  const pkEndM = payload.pkEndM === "" || payload.pkEndM == null ? null : toNumber(payload.pkEndM);
+
+  if (!sectionLabel) {
+    throw new Error("Nom du tronçon obligatoire.");
+  }
+  if (!startLabel) {
+    throw new Error("Nom du point de départ obligatoire.");
+  }
+  if (!endLabel) {
+    throw new Error("Nom du point d'arrivée obligatoire.");
+  }
+  if (!measurementDate) {
+    throw new Error("Date de mesure obligatoire.");
+  }
+  if ((pkStartM === null) !== (pkEndM === null)) {
+    throw new Error("Renseigne à la fois le PK début et le PK fin.");
+  }
+  if (pkStartM !== null && pkEndM !== null && pkStartM > pkEndM) {
+    throw new Error("Le PK début doit être inférieur ou égal au PK fin.");
+  }
+
+  return {
+    sectionLabel,
+    startLabel,
+    endLabel,
+    measurementDate,
+    pkStartM,
+    pkEndM
+  };
+}
+
+function upsertMeasurementCampaign(db, payload = {}) {
+  ensureMeasurementRuntimeSchema(db);
+
+  const road = getRoadForMeasurement(db, payload.roadId);
+  if (!road) {
+    throw new Error("Choisis la voie concernée par cette campagne.");
+  }
+
+  const campaignValues = assertMeasurementCampaignPayload(payload);
+  const campaignId = Number(payload.id);
+
+  if (Number.isFinite(campaignId) && campaignId > 0) {
+    const current = getMeasurementCampaignRecordById(db, campaignId);
+    if (!current) {
+      throw new Error("Campagne introuvable.");
+    }
+
+    db.prepare(
+      `
+      UPDATE measurement_campaign
+      SET
+        road_id = ?,
+        road_key = ?,
+        road_code = ?,
+        designation = ?,
+        section_label = ?,
+        start_label = ?,
+        end_label = ?,
+        measurement_date = ?,
+        pk_start_m = ?,
+        pk_end_m = ?,
+        source_payload = ?,
+        updated_at = datetime('now')
+      WHERE id = ?
+    `
+    ).run(
+      Number(road.id),
+      toText(road.roadKey),
+      toText(road.roadCode),
+      toText(road.designation),
+      campaignValues.sectionLabel,
+      campaignValues.startLabel,
+      campaignValues.endLabel,
+      campaignValues.measurementDate,
+      campaignValues.pkStartM,
+      campaignValues.pkEndM,
+      safeJson({ mode: "manual", source: current.source_sheet || "MANUAL" }),
+      campaignId
+    );
+
+    db.prepare(
+      `
+      UPDATE road_measurement
+      SET
+        measurement_date = ?,
+        road_id = ?,
+        road_key = ?,
+        road_code = ?,
+        designation = ?,
+        start_label = ?,
+        end_label = ?,
+        updated_at = datetime('now')
+      WHERE campaign_key = ?
+    `
+    ).run(
+      campaignValues.measurementDate,
+      Number(road.id),
+      toText(road.roadKey),
+      toText(road.roadCode),
+      toText(road.designation),
+      campaignValues.startLabel,
+      campaignValues.endLabel,
+      toText(current.campaign_key)
+    );
+
+    return getMeasurementCampaignItemById(db, campaignId);
+  }
+
+  const campaignKey = makeManualMeasurementCampaignKey(road, campaignValues.measurementDate);
+  const insertedId = db
+    .prepare(
+      `
+      INSERT INTO measurement_campaign (
+        campaign_key,
+        source_sheet,
+        source_row_no,
+        road_id,
+        road_key,
+        road_code,
+        designation,
+        section_label,
+        start_label,
+        end_label,
+        measurement_date,
+        pk_start_m,
+        pk_end_m,
+        source_payload
+      ) VALUES (?, 'MANUAL', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `
+    )
+    .run(
+      campaignKey,
+      Number(road.id),
+      toText(road.roadKey),
+      toText(road.roadCode),
+      toText(road.designation),
+      campaignValues.sectionLabel,
+      campaignValues.startLabel,
+      campaignValues.endLabel,
+      campaignValues.measurementDate,
+      campaignValues.pkStartM,
+      campaignValues.pkEndM,
+      safeJson({ mode: "manual" })
+    ).lastInsertRowid;
+
+  return getMeasurementCampaignItemById(db, insertedId);
+}
+
+function deleteMeasurementCampaign(db, campaignId) {
+  ensureMeasurementRuntimeSchema(db);
+
+  const current = getMeasurementCampaignRecordById(db, campaignId);
+  if (!current) {
+    throw new Error("Campagne introuvable.");
+  }
+
+  db.prepare("DELETE FROM road_measurement WHERE campaign_key = ?").run(toText(current.campaign_key));
+  db.prepare("DELETE FROM measurement_campaign WHERE id = ?").run(Number(campaignId));
+  return { deleted: true };
+}
+
+function assertMeasurementPayload(payload) {
+  const pkLabelDraft = toText(payload.pkLabel);
+  const numericPk = payload.pkM === "" || payload.pkM == null ? null : toNumber(payload.pkM);
+  const pkLabel = pkLabelDraft || formatMeasurementPkLabel(numericPk);
+  const pkM = numericPk !== null ? numericPk : pkLabel ? parsePkDistance(pkLabel) : null;
+
+  if (!pkLabel && pkM === null) {
+    throw new Error("PK obligatoire.");
+  }
+
+  const values = {
+    lectureLeft: payload.lectureLeft === "" || payload.lectureLeft == null ? null : toNumber(payload.lectureLeft),
+    lectureAxis: payload.lectureAxis === "" || payload.lectureAxis == null ? null : toNumber(payload.lectureAxis),
+    lectureRight: payload.lectureRight === "" || payload.lectureRight == null ? null : toNumber(payload.lectureRight),
+    deflectionLeft: payload.deflectionLeft === "" || payload.deflectionLeft == null ? null : toNumber(payload.deflectionLeft),
+    deflectionAxis: payload.deflectionAxis === "" || payload.deflectionAxis == null ? null : toNumber(payload.deflectionAxis),
+    deflectionRight: payload.deflectionRight === "" || payload.deflectionRight == null ? null : toNumber(payload.deflectionRight),
+    deflectionAvg: payload.deflectionAvg === "" || payload.deflectionAvg == null ? null : toNumber(payload.deflectionAvg),
+    stdDev: payload.stdDev === "" || payload.stdDev == null ? null : toNumber(payload.stdDev),
+    deflectionDc: payload.deflectionDc === "" || payload.deflectionDc == null ? null : toNumber(payload.deflectionDc)
+  };
+
+  if (Object.values(values).every((value) => value === null)) {
+    throw new Error("Renseigne au moins une valeur de mesure.");
+  }
+
+  return {
+    pkLabel,
+    pkM,
+    ...values
+  };
+}
+
+function assertMeasurementPkUniqueness(db, campaignKey, pkLabel, pkM, excludedId) {
+  const rows = db
+    .prepare(
+      `
+      SELECT id, pk_label AS pkLabel, pk_m AS pkM
+      FROM road_measurement
+      WHERE campaign_key = ?
+        AND (? IS NULL OR id <> ?)
+    `
+    )
+    .all(toText(campaignKey), Number.isFinite(Number(excludedId)) ? Number(excludedId) : null, Number(excludedId) || null);
+
+  const nextPkKey = normalizeMeasurementPkKey(pkLabel);
+  for (const row of rows) {
+    const sameNumericPk = pkM !== null && toNumber(row.pkM) !== null && toNumber(row.pkM) === pkM;
+    const sameLabelPk = nextPkKey && normalizeMeasurementPkKey(row.pkLabel) === nextPkKey;
+    if (sameNumericPk || sameLabelPk) {
+      throw new Error("Une ligne avec ce PK existe déjà dans cette campagne.");
+    }
+  }
+}
+
+function upsertRoadMeasurement(db, payload = {}) {
+  ensureMeasurementRuntimeSchema(db);
+
+  const measurementId = Number(payload.id);
+  const current = Number.isFinite(measurementId) && measurementId > 0 ? getRoadMeasurementRecordById(db, measurementId) : null;
+  if (Number.isFinite(measurementId) && measurementId > 0 && !current) {
+    throw new Error("Ligne de mesure introuvable.");
+  }
+
+  const campaignKey = toText(payload.campaignKey) || toText(current?.campaign_key);
+  const campaign = getMeasurementCampaignRecordByKey(db, campaignKey);
+  if (!campaign) {
+    throw new Error("Choisis d'abord une campagne de mesure.");
+  }
+
+  const measurementValues = assertMeasurementPayload(payload);
+  assertMeasurementPkUniqueness(db, campaignKey, measurementValues.pkLabel, measurementValues.pkM, current?.id);
+
+  if (current) {
+    db.prepare(
+      `
+      UPDATE road_measurement
+      SET
+        campaign_key = ?,
+        measurement_date = ?,
+        road_id = ?,
+        road_key = ?,
+        road_code = ?,
+        designation = ?,
+        start_label = ?,
+        end_label = ?,
+        pk_label = ?,
+        pk_m = ?,
+        lecture_left = ?,
+        lecture_axis = ?,
+        lecture_right = ?,
+        deflection_left = ?,
+        deflection_axis = ?,
+        deflection_right = ?,
+        deflection_avg = ?,
+        std_dev = ?,
+        deflection_dc = ?,
+        source_payload = ?,
+        updated_at = datetime('now')
+      WHERE id = ?
+    `
+    ).run(
+      campaignKey,
+      toText(campaign.measurement_date),
+      Number(campaign.road_id) || null,
+      toText(campaign.road_key),
+      toText(campaign.road_code),
+      toText(campaign.designation),
+      toText(campaign.start_label),
+      toText(campaign.end_label),
+      measurementValues.pkLabel,
+      measurementValues.pkM,
+      measurementValues.lectureLeft,
+      measurementValues.lectureAxis,
+      measurementValues.lectureRight,
+      measurementValues.deflectionLeft,
+      measurementValues.deflectionAxis,
+      measurementValues.deflectionRight,
+      measurementValues.deflectionAvg,
+      measurementValues.stdDev,
+      measurementValues.deflectionDc,
+      safeJson({ mode: "manual", campaignKey }),
+      Number(current.id)
+    );
+
+    return getRoadMeasurementItemById(db, current.id);
+  }
+
+  const measurementKey = makeManualMeasurementKey(campaignKey, measurementValues.pkLabel);
+  const insertedId = db
+    .prepare(
+      `
+      INSERT INTO road_measurement (
+        measurement_key,
+        source_sheet,
+        source_row_no,
+        campaign_key,
+        measurement_date,
+        road_id,
+        road_key,
+        road_code,
+        designation,
+        start_label,
+        end_label,
+        pk_label,
+        pk_m,
+        lecture_left,
+        lecture_axis,
+        lecture_right,
+        deflection_left,
+        deflection_axis,
+        deflection_right,
+        deflection_avg,
+        std_dev,
+        deflection_dc,
+        source_payload
+      ) VALUES (?, 'MANUAL', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `
+    )
+    .run(
+      measurementKey,
+      campaignKey,
+      toText(campaign.measurement_date),
+      Number(campaign.road_id) || null,
+      toText(campaign.road_key),
+      toText(campaign.road_code),
+      toText(campaign.designation),
+      toText(campaign.start_label),
+      toText(campaign.end_label),
+      measurementValues.pkLabel,
+      measurementValues.pkM,
+      measurementValues.lectureLeft,
+      measurementValues.lectureAxis,
+      measurementValues.lectureRight,
+      measurementValues.deflectionLeft,
+      measurementValues.deflectionAxis,
+      measurementValues.deflectionRight,
+      measurementValues.deflectionAvg,
+      measurementValues.stdDev,
+      measurementValues.deflectionDc,
+      safeJson({ mode: "manual", campaignKey })
+    ).lastInsertRowid;
+
+  return getRoadMeasurementItemById(db, insertedId);
+}
+
+function deleteRoadMeasurement(db, measurementId) {
+  ensureMeasurementRuntimeSchema(db);
+
+  const current = getRoadMeasurementRecordById(db, measurementId);
+  if (!current) {
+    throw new Error("Ligne de mesure introuvable.");
+  }
+
+  db.prepare("DELETE FROM road_measurement WHERE id = ?").run(Number(measurementId));
+  return { deleted: true };
+}
+
 function listDegradationCatalog(db) {
   const items = db
     .prepare(
@@ -3252,6 +4561,95 @@ function buildRoadCatalog(db) {
   }));
 }
 
+function buildRoadAliasCatalog(db, roads) {
+  const aliases = new Map();
+  const knownRoadKeys = new Set(roads.map((road) => toText(road.roadKey)).filter(Boolean));
+
+  function registerAlias(roadKey, aliasText, aliasType, sourceSheet) {
+    const key = toText(roadKey);
+    if (!key || !knownRoadKeys.has(key)) {
+      return;
+    }
+
+    const aliasKey = makeRoadTextAliasKey(aliasText);
+    if (!aliasKey) {
+      return;
+    }
+
+    const uniqueKey = `${key}::${aliasKey}`;
+    if (!aliases.has(uniqueKey)) {
+      aliases.set(uniqueKey, {
+        roadKey: key,
+        aliasKey,
+        aliasText: toText(aliasText),
+        aliasType: toText(aliasType) || "TEXT",
+        sourceSheet: toText(sourceSheet)
+      });
+    }
+  }
+
+  function registerBoundsAlias(roadKey, designation, startLabel, endLabel, sourceSheet) {
+    const key = toText(roadKey);
+    if (!key || !knownRoadKeys.has(key)) {
+      return;
+    }
+
+    const boundsKey = makeRoadBoundsAliasKey(designation, startLabel, endLabel);
+    if (!boundsKey) {
+      return;
+    }
+
+    const uniqueKey = `${key}::${boundsKey}`;
+    if (!aliases.has(uniqueKey)) {
+      aliases.set(uniqueKey, {
+        roadKey: key,
+        aliasKey: boundsKey,
+        aliasText: [toText(designation), toText(startLabel), toText(endLabel)].filter(Boolean).join(" | "),
+        aliasType: "SECTION_BOUNDS",
+        sourceSheet: toText(sourceSheet)
+      });
+    }
+  }
+
+  function processSourceRow(roadCode, designation, startLabel, endLabel, sourceSheet) {
+    if (!isRoadLabel(roadCode, designation)) {
+      return;
+    }
+
+    const roadKey = makeRoadKey(roadCode, designation);
+    registerAlias(roadKey, roadCode, "ROAD_CODE", sourceSheet);
+    registerAlias(roadKey, designation, "DESIGNATION", sourceSheet);
+    registerAlias(roadKey, simplifyRoadDesignation(designation), "SIMPLIFIED_DESIGNATION", sourceSheet);
+    registerBoundsAlias(roadKey, designation, startLabel, endLabel, sourceSheet);
+  }
+
+  for (const road of roads) {
+    registerAlias(road.roadKey, road.roadCode, "ROAD_CODE", "ROAD");
+    registerAlias(road.roadKey, road.designation, "DESIGNATION", "ROAD");
+    registerAlias(road.roadKey, simplifyRoadDesignation(road.designation), "SIMPLIFIED_DESIGNATION", "ROAD");
+    registerBoundsAlias(road.roadKey, road.designation, road.startLabel, road.endLabel, "ROAD");
+  }
+
+  for (const row of listSheetRows(db, "Feuil2", { limit: 5000 })) {
+    processSourceRow(row.C, row.D, row.E, row.F, "Feuil2");
+  }
+
+  for (const row of listSheetRows(db, "Feuil3", { limit: 5000 })) {
+    processSourceRow(row.A, row.B, row.C, row.D, "Feuil3");
+  }
+
+  for (const row of listSheetRows(db, "Feuil5", { limit: 5000 })) {
+    processSourceRow(row.C, row.D, row.E, row.F, "Feuil5");
+  }
+
+  for (const row of listSheetRows(db, "Feuil6", { limit: 5000 })) {
+    const itineraryBounds = splitItinerary(row.F);
+    processSourceRow(row.C, row.E, itineraryBounds.startLabel, itineraryBounds.endLabel, "Feuil6");
+  }
+
+  return [...aliases.values()];
+}
+
 function buildDegradationCatalog(db) {
   const rows = listSheetRows(db, "Feuil7", { limit: 5000 });
   const map = new Map();
@@ -3569,6 +4967,23 @@ function ensureRoad(map, key, roadCode, designation) {
   return map.get(key);
 }
 
+function setUniqueRoadLookup(map, key, row) {
+  const normalizedKey = toText(key);
+  if (!normalizedKey) {
+    return;
+  }
+
+  if (!map.has(normalizedKey)) {
+    map.set(normalizedKey, row);
+    return;
+  }
+
+  const existing = map.get(normalizedKey);
+  if (existing && Number(existing.id) !== Number(row.id)) {
+    map.set(normalizedKey, null);
+  }
+}
+
 function makeRoadKey(roadCode, designation) {
   const codeKey = normalizeRoadCode(roadCode);
   if (codeKey) {
@@ -3587,6 +5002,37 @@ function parseSapCode(sectionNo, rowLabel) {
     return `SAP${fromLabel[1]}`;
   }
   return "";
+}
+
+function normalizeRoadAliasValue(value) {
+  return toText(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/BOULEVARD/g, "BVD")
+    .replace(/AVENUE/g, "AV")
+    .replace(/[().,;:_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function makeRoadTextAliasKey(value) {
+  const normalized = normalizeRoadAliasValue(simplifyRoadDesignation(value) || value);
+  return normalized ? `TEXT:${normalized}` : "";
+}
+
+function makeRoadBoundsLookupKey(designation, startLabel, endLabel) {
+  const designationKey = normalizeRoadAliasValue(simplifyRoadDesignation(designation));
+  const startKey = normalizeRoadAliasValue(startLabel);
+  const endKey = normalizeRoadAliasValue(endLabel);
+  if (!designationKey || !startKey || !endKey) {
+    return "";
+  }
+  return `BOUNDS:${designationKey}|${startKey}|${endKey}`;
+}
+
+function makeRoadBoundsAliasKey(designation, startLabel, endLabel) {
+  return makeRoadBoundsLookupKey(designation, startLabel, endLabel);
 }
 
 function splitItinerary(itinerary) {

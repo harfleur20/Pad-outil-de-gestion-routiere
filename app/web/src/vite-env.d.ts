@@ -11,11 +11,15 @@ import type {
   DrainageRule,
   DegradationItem,
   ImportPreview,
+  MeasurementCampaignItem,
+  MeasurementCampaignPayload,
   MaintenanceInterventionItem,
   MaintenanceInterventionPayload,
   MaintenanceSolutionTemplate,
   ReportExportResult,
   RoadCatalogItem,
+  RoadMeasurementItem,
+  RoadMeasurementPayload,
   SapSector,
   SheetDefinition,
   SheetRow,
@@ -56,6 +60,22 @@ declare global {
       };
       roads: {
         list: (filters?: { sapCode?: string; search?: string }) => Promise<RoadCatalogItem[]>;
+      };
+      measurement: {
+        listCampaigns: (filters?: {
+          roadId?: number;
+          search?: string;
+          limit?: number;
+        }) => Promise<MeasurementCampaignItem[]>;
+        listRows: (filters?: {
+          campaignKey?: string;
+          roadId?: number;
+          limit?: number;
+        }) => Promise<RoadMeasurementItem[]>;
+        upsertCampaign: (payload: MeasurementCampaignPayload) => Promise<MeasurementCampaignItem | null>;
+        deleteCampaign: (campaignId: number) => Promise<{ deleted: boolean }>;
+        upsertRow: (payload: RoadMeasurementPayload) => Promise<RoadMeasurementItem | null>;
+        deleteRow: (measurementId: number) => Promise<{ deleted: boolean }>;
       };
       degradations: {
         list: () => Promise<DegradationItem[]>;

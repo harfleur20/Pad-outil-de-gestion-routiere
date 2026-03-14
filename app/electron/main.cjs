@@ -99,6 +99,12 @@ function registerIpcHandlers() {
 
   ipcMain.handle("sap:list", () => dataLayer.listSapSectors());
   ipcMain.handle("roads:list", (_event, filters) => dataLayer.listRoadCatalog(filters));
+  ipcMain.handle("measurement:listCampaigns", (_event, filters) => dataLayer.listMeasurementCampaigns(filters));
+  ipcMain.handle("measurement:listRows", (_event, filters) => dataLayer.listRoadMeasurements(filters));
+  ipcMain.handle("measurement:upsertCampaign", (_event, payload) => dataLayer.upsertMeasurementCampaign(payload));
+  ipcMain.handle("measurement:deleteCampaign", (_event, campaignId) => dataLayer.deleteMeasurementCampaign(campaignId));
+  ipcMain.handle("measurement:upsertRow", (_event, payload) => dataLayer.upsertRoadMeasurement(payload));
+  ipcMain.handle("measurement:deleteRow", (_event, measurementId) => dataLayer.deleteRoadMeasurement(measurementId));
   ipcMain.handle("degradations:list", () => dataLayer.listDegradationCatalog());
   ipcMain.handle("drainageRules:list", () => dataLayer.listDrainageRules());
   ipcMain.handle("drainageRules:upsert", (_event, payload) => dataLayer.upsertDrainageRule(payload));

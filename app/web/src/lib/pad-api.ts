@@ -9,11 +9,15 @@
   DecisionResult,
   DegradationItem,
   ImportPreview,
+  MeasurementCampaignItem,
+  MeasurementCampaignPayload,
   MaintenanceInterventionItem,
   MaintenanceInterventionPayload,
   MaintenanceSolutionTemplate,
   ReportExportResult,
   RoadCatalogItem,
+  RoadMeasurementItem,
+  RoadMeasurementPayload,
   SapSector,
   SheetDefinition,
   SheetRow,
@@ -122,6 +126,44 @@ export const padApi = {
   async listRoads(filters?: { sapCode?: string; search?: string }): Promise<RoadCatalogItem[]> {
     const bridge = requireBridge();
     return bridge.roads.list(filters);
+  },
+
+  async listMeasurementCampaigns(filters?: {
+    roadId?: number;
+    search?: string;
+    limit?: number;
+  }): Promise<MeasurementCampaignItem[]> {
+    const bridge = requireBridge();
+    return bridge.measurement.listCampaigns(filters);
+  },
+
+  async listRoadMeasurements(filters?: {
+    campaignKey?: string;
+    roadId?: number;
+    limit?: number;
+  }): Promise<RoadMeasurementItem[]> {
+    const bridge = requireBridge();
+    return bridge.measurement.listRows(filters);
+  },
+
+  async upsertMeasurementCampaign(payload: MeasurementCampaignPayload): Promise<MeasurementCampaignItem | null> {
+    const bridge = requireBridge();
+    return bridge.measurement.upsertCampaign(payload);
+  },
+
+  async deleteMeasurementCampaign(campaignId: number): Promise<{ deleted: boolean }> {
+    const bridge = requireBridge();
+    return bridge.measurement.deleteCampaign(campaignId);
+  },
+
+  async upsertRoadMeasurement(payload: RoadMeasurementPayload): Promise<RoadMeasurementItem | null> {
+    const bridge = requireBridge();
+    return bridge.measurement.upsertRow(payload);
+  },
+
+  async deleteRoadMeasurement(measurementId: number): Promise<{ deleted: boolean }> {
+    const bridge = requireBridge();
+    return bridge.measurement.deleteRow(measurementId);
   },
 
   async listDegradations(): Promise<DegradationItem[]> {

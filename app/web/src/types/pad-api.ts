@@ -164,6 +164,75 @@ export type RoadCatalogItem = {
   interventionHint?: string;
 };
 
+export type MeasurementCampaignItem = {
+  id: number;
+  campaignKey: string;
+  roadId: number | null;
+  roadKey: string;
+  roadCode: string;
+  designation: string;
+  sapCode: string;
+  sectionLabel: string;
+  startLabel: string;
+  endLabel: string;
+  measurementDate: string;
+  pkStartM: number | null;
+  pkEndM: number | null;
+  measurementCount: number;
+  maxDeflectionDc: number | null;
+  avgDeflectionDc: number | null;
+};
+
+export type MeasurementCampaignPayload = {
+  id?: number;
+  roadId: number;
+  sectionLabel: string;
+  startLabel: string;
+  endLabel: string;
+  measurementDate: string;
+  pkStartM?: number | string | null;
+  pkEndM?: number | string | null;
+};
+
+export type RoadMeasurementItem = {
+  id: number;
+  campaignKey: string;
+  measurementDate: string;
+  roadId: number | null;
+  roadKey: string;
+  roadCode: string;
+  designation: string;
+  startLabel: string;
+  endLabel: string;
+  pkLabel: string;
+  pkM: number | null;
+  lectureLeft: number | null;
+  lectureAxis: number | null;
+  lectureRight: number | null;
+  deflectionLeft: number | null;
+  deflectionAxis: number | null;
+  deflectionRight: number | null;
+  deflectionAvg: number | null;
+  stdDev: number | null;
+  deflectionDc: number | null;
+};
+
+export type RoadMeasurementPayload = {
+  id?: number;
+  campaignKey: string;
+  pkLabel?: string;
+  pkM?: number | string | null;
+  lectureLeft?: number | string | null;
+  lectureAxis?: number | string | null;
+  lectureRight?: number | string | null;
+  deflectionLeft?: number | string | null;
+  deflectionAxis?: number | string | null;
+  deflectionRight?: number | string | null;
+  deflectionAvg?: number | string | null;
+  stdDev?: number | string | null;
+  deflectionDc?: number | string | null;
+};
+
 export type DegradationItem = {
   id: number;
   code: string;
