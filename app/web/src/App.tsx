@@ -1,15 +1,25 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { padApi } from "./lib/pad-api";
 import {
+  Activity,
   BarChart3,
+  BookOpen,
+  CalendarRange,
   ChevronDown,
   ChevronUp,
+  CircleHelp,
+  ClipboardPlus,
+  Calculator,
   DatabaseBackup,
   Eye,
   ExternalLink,
   FileSpreadsheet,
   FolderOpen,
   Gauge,
+  History,
+  Layers3,
+  Map as MapIcon,
+  Route,
   Paperclip,
   Pencil,
   Plus,
@@ -620,6 +630,81 @@ function parseFeuil6SapMarker(value: unknown) {
   return "";
 }
 
+function getSheetDisplayName(sheetName: string) {
+  if (sheetName === "Feuil1") {
+    return "Campagne";
+  }
+  if (sheetName === "Feuil2") {
+    return "Sections";
+  }
+  if (sheetName === "Feuil3") {
+    return "Diagnostic";
+  }
+  if (sheetName === "Feuil4") {
+    return "Évaluation";
+  }
+  if (sheetName === "Feuil5") {
+    return "Compléments";
+  }
+  if (sheetName === "Feuil6") {
+    return "Voies";
+  }
+  if (sheetName === "Feuil7") {
+    return "Causes";
+  }
+  return sheetName;
+}
+
+function getSheetPrintSubtitle(sheetName: string) {
+  if (sheetName === "Feuil1") {
+    return "Feuille de campagnes de mesures de déflexion rattachées aux voies réelles du réseau.";
+  }
+  if (sheetName === "Feuil2") {
+    return "Référentiel des sections du réseau, groupé par SAP, utilisé pour structurer les voies et leurs bornes.";
+  }
+  if (sheetName === "Feuil3") {
+    return "Profil technique détaillé des voies : chaussée, assainissement, trottoirs et nature d'intervention recommandée.";
+  }
+  if (sheetName === "Feuil4") {
+    return "Tableau d'évaluation des observations, causes probables et décisions de maintenance.";
+  }
+  if (sheetName === "Feuil5") {
+    return "Compléments techniques des sections : assainissement, largeur minimale, trottoirs et stationnement.";
+  }
+  if (sheetName === "Feuil6") {
+    return "Répertoire codifié central des voies : type, code, nom proposé, itinéraire et justification.";
+  }
+  if (sheetName === "Feuil7") {
+    return "Catalogue des dégradations, causes probables et informations utiles à la décision.";
+  }
+  return "Impression du tableau de la feuille active, avec les colonnes et lignes actuellement affichées.";
+}
+
+function renderSheetNavIcon(sheetName: string) {
+  if (sheetName === "Feuil1") {
+    return <CalendarRange size={16} aria-hidden="true" />;
+  }
+  if (sheetName === "Feuil2") {
+    return <Route size={16} aria-hidden="true" />;
+  }
+  if (sheetName === "Feuil3") {
+    return <Activity size={16} aria-hidden="true" />;
+  }
+  if (sheetName === "Feuil4") {
+    return <Calculator size={16} aria-hidden="true" />;
+  }
+  if (sheetName === "Feuil5") {
+    return <Layers3 size={16} aria-hidden="true" />;
+  }
+  if (sheetName === "Feuil6") {
+    return <MapIcon size={16} aria-hidden="true" />;
+  }
+  if (sheetName === "Feuil7") {
+    return <CircleHelp size={16} aria-hidden="true" />;
+  }
+  return <FileSpreadsheet size={16} aria-hidden="true" />;
+}
+
 function compareSapCodes(left: string, right: string) {
   const leftMatch = String(left ?? "").match(/([0-9]+)/);
   const rightMatch = String(right ?? "").match(/([0-9]+)/);
@@ -974,6 +1059,8 @@ export default function App() {
   const [solutionTemplates, setSolutionTemplates] = useState<MaintenanceSolutionTemplate[]>([]);
   const [selectedTemplateKey, setSelectedTemplateKey] = useState("");
   const [solutionDraft, setSolutionDraft] = useState("");
+  const [solutionFieldErrors, setSolutionFieldErrors] = useState<Record<string, string>>({});
+  const [solutionFormError, setSolutionFormError] = useState("");
   const [shouldScrollToDegradationEditor, setShouldScrollToDegradationEditor] = useState(false);
   const [isDegradationEditorHighlighted, setIsDegradationEditorHighlighted] = useState(false);
   const [drainageRules, setDrainageRules] = useState<DrainageRule[]>([]);
@@ -985,6 +1072,10 @@ export default function App() {
   const [drainageRuleNeedsAttention, setDrainageRuleNeedsAttention] = useState(false);
   const [drainageRuleRecommendation, setDrainageRuleRecommendation] = useState("");
   const [drainageRuleActive, setDrainageRuleActive] = useState(true);
+  const [drainageRuleFieldErrors, setDrainageRuleFieldErrors] = useState<Record<string, string>>({});
+  const [drainageRuleFormError, setDrainageRuleFormError] = useState("");
+  const [maintenanceFieldErrors, setMaintenanceFieldErrors] = useState<Record<string, string>>({});
+  const [maintenanceFormError, setMaintenanceFormError] = useState("");
 
   const [isBusy, setIsBusy] = useState(false);
   const [isLoadingRows, setIsLoadingRows] = useState(false);
@@ -2012,6 +2103,45 @@ export default function App() {
     });
   }, []);
 
+  const clearSolutionFieldError = useCallback((field: string) => {
+    setSolutionFieldErrors((current) => {
+      if (!current[field]) {
+        return current;
+      }
+      const next = { ...current };
+      delete next[field];
+      return next;
+    });
+    setSolutionFormError("");
+    setError("");
+  }, []);
+
+  const clearDrainageRuleFieldError = useCallback((field: string) => {
+    setDrainageRuleFieldErrors((current) => {
+      if (!current[field]) {
+        return current;
+      }
+      const next = { ...current };
+      delete next[field];
+      return next;
+    });
+    setDrainageRuleFormError("");
+    setError("");
+  }, []);
+
+  const clearMaintenanceFieldError = useCallback((field: string) => {
+    setMaintenanceFieldErrors((current) => {
+      if (!current[field]) {
+        return current;
+      }
+      const next = { ...current };
+      delete next[field];
+      return next;
+    });
+    setMaintenanceFormError("");
+    setError("");
+  }, []);
+
   const validateMeasurementCampaignForm = useCallback(() => {
     const nextErrors: Record<string, string> = {};
     const roadId = Number(measurementCampaignRoadId);
@@ -2106,8 +2236,92 @@ export default function App() {
     measurementStdDev
   ]);
 
+  const validateSolutionTemplateForm = useCallback(() => {
+    const nextErrors: Record<string, string> = {};
+    if (!selectedTemplateKey) {
+      nextErrors.templateKey = "Veuillez choisir un modèle de solution.";
+    }
+    setSolutionFieldErrors(nextErrors);
+    return nextErrors;
+  }, [selectedTemplateKey]);
+
+  const validateSolutionOverrideForm = useCallback(() => {
+    const nextErrors: Record<string, string> = {};
+    if (!solutionDraft.trim()) {
+      nextErrors.solutionDraft = "Veuillez saisir une solution personnalisée.";
+    }
+    setSolutionFieldErrors(nextErrors);
+    return nextErrors;
+  }, [solutionDraft]);
+
+  const validateDrainageRuleForm = useCallback(() => {
+    const nextErrors: Record<string, string> = {};
+    const parsedOrder = Number(drainageRuleOrder);
+    if (!String(drainageRuleOrder).trim()) {
+      nextErrors.ruleOrder = "Veuillez renseigner l'ordre de la règle.";
+    } else if (!Number.isFinite(parsedOrder) || parsedOrder <= 0) {
+      nextErrors.ruleOrder = "Veuillez saisir un nombre supérieur à 0.";
+    }
+    if (drainageRuleOperator !== "ALWAYS" && !drainageRulePattern.trim()) {
+      nextErrors.pattern = "Veuillez renseigner le mot-clé ou l'expression à rechercher.";
+    }
+    if (!drainageRuleRecommendation.trim()) {
+      nextErrors.recommendation = "Veuillez renseigner la recommandation d'assainissement.";
+    }
+    setDrainageRuleFieldErrors(nextErrors);
+    return nextErrors;
+  }, [drainageRuleOperator, drainageRuleOrder, drainageRulePattern, drainageRuleRecommendation]);
+
+  const validateMaintenanceForm = useCallback(() => {
+    const nextErrors: Record<string, string> = {};
+    const parsedRoadId = Number(maintenanceRoadId);
+    const deflectionBefore =
+      String(maintenanceDeflectionBefore).trim() === "" ? null : Number(maintenanceDeflectionBefore);
+    const deflectionAfter = String(maintenanceDeflectionAfter).trim() === "" ? null : Number(maintenanceDeflectionAfter);
+    const costAmount = String(maintenanceCostAmount).trim() === "" ? null : Number(maintenanceCostAmount);
+
+    if (!Number.isFinite(parsedRoadId) || parsedRoadId <= 0) {
+      nextErrors.roadId = "Veuillez choisir la voie concernée.";
+    }
+    if (!maintenanceType.trim()) {
+      nextErrors.type = "Veuillez renseigner le type d'entretien.";
+    }
+    if (!maintenanceDate) {
+      nextErrors.interventionDate = "Veuillez renseigner la date prévue.";
+    }
+    if (maintenanceStatus === "TERMINE" && !maintenanceCompletionDate) {
+      nextErrors.completionDate = "Veuillez renseigner la date réelle ou de clôture.";
+    }
+    if (maintenanceDate && maintenanceCompletionDate && maintenanceCompletionDate < maintenanceDate) {
+      nextErrors.completionDate = "La date réelle ne peut pas être antérieure à la date prévue.";
+    }
+    if (deflectionBefore !== null && !Number.isFinite(deflectionBefore)) {
+      nextErrors.deflectionBefore = "Veuillez saisir un nombre valide pour la déflexion avant.";
+    }
+    if (deflectionAfter !== null && !Number.isFinite(deflectionAfter)) {
+      nextErrors.deflectionAfter = "Veuillez saisir un nombre valide pour la déflexion après.";
+    }
+    if (costAmount !== null && (!Number.isFinite(costAmount) || costAmount < 0)) {
+      nextErrors.costAmount = "Veuillez saisir un coût valide supérieur ou égal à 0.";
+    }
+
+    setMaintenanceFieldErrors(nextErrors);
+    return nextErrors;
+  }, [
+    maintenanceCompletionDate,
+    maintenanceCostAmount,
+    maintenanceDate,
+    maintenanceDeflectionAfter,
+    maintenanceDeflectionBefore,
+    maintenanceRoadId,
+    maintenanceStatus,
+    maintenanceType
+  ]);
+
   const resetMaintenanceForm = useCallback(() => {
     setEditingMaintenanceId(null);
+    setMaintenanceFieldErrors({});
+    setMaintenanceFormError("");
     setMaintenanceRoadId("");
     setMaintenanceDegradationCode("");
     setMaintenanceType("");
@@ -2295,10 +2509,14 @@ export default function App() {
     if (!selectedDegradation) {
       setSelectedTemplateKey("");
       setSolutionDraft("");
+      setSolutionFieldErrors({});
+      setSolutionFormError("");
       return;
     }
     setSelectedTemplateKey(selectedDegradation.templateKey ?? "");
     setSolutionDraft(selectedDegradation.solution || "");
+    setSolutionFieldErrors({});
+    setSolutionFormError("");
   }, [selectedDegradation]);
 
   useEffect(() => {
@@ -2541,17 +2759,25 @@ export default function App() {
     );
   }
 
-  function renderStandardSheetPrintHeader(_sheetTitle?: string) {
+  function renderStandardSheetPrintHeader(sheetTitle?: string, sheetSubtitle?: string) {
     return (
-      <div className="print-sheet-header">
-        <div className="print-sheet-header__brand">
-          <img className="print-sheet-header__logo" src="/logo-pad.png" alt="Logo Port Autonome de Douala" />
-          <div>
-            <strong>{appName}</strong>
-            <div>Pilotez la maintenance routière du PAD avec des décisions rapides et fiables.</div>
+      <>
+        <div className="print-sheet-header">
+          <div className="print-sheet-header__brand">
+            <img className="print-sheet-header__logo" src="/logo-pad.png" alt="Logo Port Autonome de Douala" />
+            <div>
+              <strong>{appName}</strong>
+              <div>Pilotez la maintenance routière du PAD avec des décisions rapides et fiables.</div>
+            </div>
           </div>
         </div>
-      </div>
+        {sheetTitle || sheetSubtitle ? (
+          <div className="print-sheet-heading">
+            {sheetTitle ? <h2 className="print-sheet-header__title">{sheetTitle}</h2> : null}
+            {sheetSubtitle ? <p className="print-sheet-header__subtitle">{sheetSubtitle}</p> : null}
+          </div>
+        ) : null}
+      </>
     );
   }
 
@@ -2931,7 +3157,7 @@ export default function App() {
   }
 
   async function handleCreateSourceRowAndEdit(
-    sheetName: "Feuil3" | "Feuil5",
+    sheetName: "Feuil2" | "Feuil3" | "Feuil5" | "Feuil6",
     payload: SheetRowPayload,
     successMessage: string
   ) {
@@ -3007,6 +3233,26 @@ export default function App() {
     };
   }
 
+  function buildFeuil2SourcePayload(item: {
+    tronconNo: string;
+    sectionNo: string;
+    roadLabel: string;
+    designation: string;
+    startLabel: string;
+    endLabel: string;
+    lengthM: number | null;
+  }): SheetRowPayload {
+    return {
+      A: toSheetCellValue(item.tronconNo),
+      B: toSheetCellValue(item.sectionNo),
+      C: toSheetCellValue(item.roadLabel),
+      D: toSheetCellValue(item.designation),
+      E: toSheetCellValue(item.startLabel),
+      F: toSheetCellValue(item.endLabel),
+      G: toSheetCellValue(item.lengthM)
+    };
+  }
+
   function buildFeuil5SourcePayload(item: {
     tronconNo: string;
     sectionNo: string;
@@ -3042,6 +3288,24 @@ export default function App() {
       N: toSheetCellValue(item.parkingLeft),
       O: toSheetCellValue(item.parkingRight),
       P: toSheetCellValue(item.parkingOther)
+    };
+  }
+
+  function buildFeuil6SourcePayload(item: {
+    roadType: string;
+    roadCode: string;
+    linearM: number | null;
+    proposedName: string;
+    itinerary: string;
+    justification: string;
+  }): SheetRowPayload {
+    return {
+      B: toSheetCellValue(item.roadType),
+      C: toSheetCellValue(item.roadCode),
+      D: toSheetCellValue(item.linearM),
+      E: toSheetCellValue(item.proposedName),
+      F: toSheetCellValue(item.itinerary),
+      G: toSheetCellValue(item.justification)
     };
   }
 
@@ -3214,10 +3478,15 @@ export default function App() {
   async function handleAssignSolutionTemplate() {
     if (!selectedDegradation) {
       setError("Sélectionne une dégradation.");
+      scrollPageTop();
       return;
     }
-    if (!selectedTemplateKey) {
-      setError("Sélectionne un modèle de solution.");
+    const fieldErrors = validateSolutionTemplateForm();
+    if (Object.keys(fieldErrors).length > 0) {
+      const message = Object.values(fieldErrors)[0] || "Veuillez corriger les champs obligatoires.";
+      setSolutionFormError(message);
+      setError(message);
+      scrollPageTop();
       return;
     }
 
@@ -3226,9 +3495,14 @@ export default function App() {
       await padApi.assignTemplateToDegradation(selectedDegradation.code, selectedTemplateKey);
       await Promise.all([refreshDecisionCatalogs(), loadSolutionTemplates()]);
       setNotice("Modèle de solution appliqué à la dégradation.");
+      setSolutionFieldErrors({});
+      setSolutionFormError("");
       setError("");
     } catch (err) {
-      setError(toErrorMessage(err));
+      const message = toErrorMessage(err);
+      setSolutionFormError(message);
+      setError(message);
+      scrollPageTop();
     } finally {
       setIsSolutionBusy(false);
     }
@@ -3237,10 +3511,15 @@ export default function App() {
   async function handleSaveSolutionOverride() {
     if (!selectedDegradation) {
       setError("Sélectionne une dégradation.");
+      scrollPageTop();
       return;
     }
-    if (!solutionDraft.trim()) {
-      setError("Saisis une solution personnalisée.");
+    const fieldErrors = validateSolutionOverrideForm();
+    if (Object.keys(fieldErrors).length > 0) {
+      const message = Object.values(fieldErrors)[0] || "Veuillez corriger les champs obligatoires.";
+      setSolutionFormError(message);
+      setError(message);
+      scrollPageTop();
       return;
     }
 
@@ -3249,9 +3528,14 @@ export default function App() {
       await padApi.setDegradationSolutionOverride(selectedDegradation.code, solutionDraft.trim());
       await refreshDecisionCatalogs();
       setNotice("Solution personnalisée enregistrée.");
+      setSolutionFieldErrors({});
+      setSolutionFormError("");
       setError("");
     } catch (err) {
-      setError(toErrorMessage(err));
+      const message = toErrorMessage(err);
+      setSolutionFormError(message);
+      setError(message);
+      scrollPageTop();
     } finally {
       setIsSolutionBusy(false);
     }
@@ -3268,9 +3552,14 @@ export default function App() {
       await padApi.clearDegradationSolutionOverride(selectedDegradation.code);
       await refreshDecisionCatalogs();
       setNotice("Solution personnalisée retirée (retour au modèle).");
+      setSolutionFieldErrors({});
+      setSolutionFormError("");
       setError("");
     } catch (err) {
-      setError(toErrorMessage(err));
+      const message = toErrorMessage(err);
+      setSolutionFormError(message);
+      setError(message);
+      scrollPageTop();
     } finally {
       setIsSolutionBusy(false);
     }
@@ -3278,6 +3567,8 @@ export default function App() {
 
   function resetDrainageRuleEditor() {
     setEditingDrainageRuleId(null);
+    setDrainageRuleFieldErrors({});
+    setDrainageRuleFormError("");
     setDrainageRuleOrder("");
     setDrainageRuleOperator("CONTAINS");
     setDrainageRulePattern("");
@@ -3289,6 +3580,8 @@ export default function App() {
 
   function handleEditDrainageRule(rule: DrainageRule) {
     setEditingDrainageRuleId(rule.id);
+    setDrainageRuleFieldErrors({});
+    setDrainageRuleFormError("");
     setDrainageRuleOrder(String(rule.ruleOrder));
     setDrainageRuleOperator(rule.matchOperator);
     setDrainageRulePattern(rule.pattern || "");
@@ -3298,22 +3591,19 @@ export default function App() {
     setDrainageRuleActive(rule.isActive);
     setError("");
     setNotice(`Édition règle assainissement #${rule.id}`);
+    scrollPageTop();
   }
 
   async function handleSaveDrainageRule() {
+    const fieldErrors = validateDrainageRuleForm();
+    if (Object.keys(fieldErrors).length > 0) {
+      const message = Object.values(fieldErrors)[0] || "Veuillez corriger les champs obligatoires.";
+      setDrainageRuleFormError(message);
+      setError(message);
+      scrollPageTop();
+      return;
+    }
     const parsedOrder = Number(drainageRuleOrder);
-    if (!Number.isFinite(parsedOrder) || parsedOrder <= 0) {
-      setError("Ordre de règle invalide (nombre > 0 attendu).");
-      return;
-    }
-    if (!drainageRuleRecommendation.trim()) {
-      setError("La recommandation assainissement est obligatoire.");
-      return;
-    }
-    if (drainageRuleOperator !== "ALWAYS" && !drainageRulePattern.trim()) {
-      setError("Le pattern est obligatoire sauf pour l'opérateur ALWAYS.");
-      return;
-    }
 
     setIsDrainageRuleBusy(true);
     try {
@@ -3329,10 +3619,15 @@ export default function App() {
       });
       await loadDrainageRules();
       resetDrainageRuleEditor();
+      setDrainageRuleFieldErrors({});
+      setDrainageRuleFormError("");
       setError("");
       setNotice("Règle assainissement enregistrée.");
     } catch (err) {
-      setError(toErrorMessage(err));
+      const message = toErrorMessage(err);
+      setDrainageRuleFormError(message);
+      setError(message);
+      scrollPageTop();
     } finally {
       setIsDrainageRuleBusy(false);
     }
@@ -3367,6 +3662,8 @@ export default function App() {
 
   function handleEditMaintenance(intervention: MaintenanceInterventionItem) {
     setEditingMaintenanceId(intervention.id);
+    setMaintenanceFieldErrors({});
+    setMaintenanceFormError("");
     setMaintenanceRoadId(intervention.roadId ?? "");
     setMaintenanceDegradationCode(intervention.degradationCode || "");
     setMaintenanceType(intervention.interventionType || "");
@@ -3389,22 +3686,19 @@ export default function App() {
     setMaintenanceCostAmount(intervention.costAmount != null ? String(intervention.costAmount) : "");
     setError("");
     setNotice(`Édition entretien #${intervention.id}`);
+    scrollPageTop();
   }
 
   async function handleSaveMaintenance() {
+    const fieldErrors = validateMaintenanceForm();
+    if (Object.keys(fieldErrors).length > 0) {
+      const message = Object.values(fieldErrors)[0] || "Veuillez corriger les champs obligatoires.";
+      setMaintenanceFormError(message);
+      setError(message);
+      scrollPageTop();
+      return;
+    }
     const parsedRoadId = Number(maintenanceRoadId);
-    if (!Number.isFinite(parsedRoadId) || parsedRoadId <= 0) {
-      setError("Sélectionne une voie pour l'entretien.");
-      return;
-    }
-    if (!maintenanceType.trim()) {
-      setError("Renseigne le type d'entretien.");
-      return;
-    }
-    if (!maintenanceDate) {
-      setError("Renseigne la date d'intervention.");
-      return;
-    }
 
     const payload: MaintenanceInterventionPayload = {
       id: editingMaintenanceId ?? undefined,
@@ -3438,10 +3732,15 @@ export default function App() {
         loadDashboardSummary()
       ]);
       resetMaintenanceForm();
+      setMaintenanceFieldErrors({});
+      setMaintenanceFormError("");
       setError("");
       setNotice("Entretien enregistré.");
     } catch (err) {
-      setError(toErrorMessage(err));
+      const message = toErrorMessage(err);
+      setMaintenanceFormError(message);
+      setError(message);
+      scrollPageTop();
     } finally {
       setIsMaintenanceBusy(false);
     }
@@ -3729,7 +4028,7 @@ export default function App() {
                         {importPreview.sheetPreviews.map((sheet) => (
                           <tr key={sheet.name}>
                             <td>
-                              <strong>{sheet.name}</strong>
+                              <strong>{getSheetDisplayName(sheet.name)}</strong>
                               <div className="muted">{sheet.title}</div>
                             </td>
                             <td>{sheet.present ? "Oui" : "Non"}</td>
@@ -4462,11 +4761,18 @@ export default function App() {
               </ul>
 
               <h3>Paramétrage solution de maintenance</h3>
-              <label htmlFor="template-key">Modèle de solution</label>
+              {solutionFormError ? <p className="modal-feedback modal-feedback--error">{solutionFormError}</p> : null}
+              <label htmlFor="template-key">
+                Modèle de solution <span className="field-label__required">*</span>
+              </label>
               <select
                 id="template-key"
+                className={solutionFieldErrors.templateKey ? "cell-field--error" : undefined}
                 value={selectedTemplateKey}
-                onChange={(event) => setSelectedTemplateKey(event.target.value)}
+                onChange={(event) => {
+                  setSelectedTemplateKey(event.target.value);
+                  clearSolutionFieldError("templateKey");
+                }}
                 disabled={isSolutionBusy}
               >
                 <option value="">Sélectionner un modèle</option>
@@ -4476,6 +4782,7 @@ export default function App() {
                   </option>
                 ))}
               </select>
+              {solutionFieldErrors.templateKey ? <p className="field-error">{solutionFieldErrors.templateKey}</p> : null}
 
               <div className="editor-actions">
                 <button className="row-action" type="button" onClick={handleAssignSolutionTemplate} disabled={isSolutionBusy}>
@@ -4483,16 +4790,22 @@ export default function App() {
                 </button>
               </div>
 
-              <label htmlFor="solution-override">Solution personnalisée</label>
+              <label htmlFor="solution-override">
+                Solution personnalisée <span className="field-label__required">*</span>
+              </label>
               <textarea
                 id="solution-override"
-                className="input-textarea"
+                className={`input-textarea${solutionFieldErrors.solutionDraft ? " cell-field--error" : ""}`}
                 value={solutionDraft}
-                onChange={(event) => setSolutionDraft(event.target.value)}
+                onChange={(event) => {
+                  setSolutionDraft(event.target.value);
+                  clearSolutionFieldError("solutionDraft");
+                }}
                 placeholder="Saisir la solution de maintenance spécifique à cette dégradation"
                 rows={5}
                 disabled={isSolutionBusy}
               />
+              {solutionFieldErrors.solutionDraft ? <p className="field-error">{solutionFieldErrors.solutionDraft}</p> : null}
 
               <div className="editor-actions">
                 <button className="primary" type="button" onClick={handleSaveSolutionOverride} disabled={isSolutionBusy}>
@@ -4569,17 +4882,25 @@ export default function App() {
             <h3 className="drainage-editor-title">
               {editingDrainageRuleId ? `Édition règle #${editingDrainageRuleId}` : "Nouvelle règle assainissement"}
             </h3>
+            {drainageRuleFormError ? <p className="modal-feedback modal-feedback--error">{drainageRuleFormError}</p> : null}
             <div className="cells-grid">
-              <div className="cell-field">
-                <label htmlFor="dr-rule-order">Ordre de règle</label>
+              <div className={`cell-field${drainageRuleFieldErrors.ruleOrder ? " cell-field--error" : ""}`}>
+                <label htmlFor="dr-rule-order">
+                  Ordre de règle <span className="field-label__required">*</span>
+                </label>
                 <input
                   id="dr-rule-order"
                   type="number"
                   min={1}
+                  className={drainageRuleFieldErrors.ruleOrder ? "cell-field--error" : undefined}
                   value={drainageRuleOrder}
-                  onChange={(event) => setDrainageRuleOrder(event.target.value)}
+                  onChange={(event) => {
+                    setDrainageRuleOrder(event.target.value);
+                    clearDrainageRuleFieldError("ruleOrder");
+                  }}
                   disabled={isDrainageRuleBusy}
                 />
+                {drainageRuleFieldErrors.ruleOrder ? <p className="field-error">{drainageRuleFieldErrors.ruleOrder}</p> : null}
               </div>
 
               <div className="cell-field">
@@ -4587,7 +4908,10 @@ export default function App() {
                 <select
                   id="dr-rule-operator"
                   value={drainageRuleOperator}
-                  onChange={(event) => setDrainageRuleOperator(event.target.value as DrainageRule["matchOperator"])}
+                  onChange={(event) => {
+                    setDrainageRuleOperator(event.target.value as DrainageRule["matchOperator"]);
+                    clearDrainageRuleFieldError("pattern");
+                  }}
                   disabled={isDrainageRuleBusy}
                 >
                   {DRAINAGE_OPERATORS.map((operator) => (
@@ -4598,15 +4922,22 @@ export default function App() {
                 </select>
               </div>
 
-              <div className="cell-field">
-                <label htmlFor="dr-rule-pattern">Pattern</label>
+              <div className={`cell-field${drainageRuleFieldErrors.pattern ? " cell-field--error" : ""}`}>
+                <label htmlFor="dr-rule-pattern">
+                  Pattern{drainageRuleOperator !== "ALWAYS" ? <span className="field-label__required"> *</span> : null}
+                </label>
                 <input
                   id="dr-rule-pattern"
+                  className={drainageRuleFieldErrors.pattern ? "cell-field--error" : undefined}
                   value={drainageRulePattern}
-                  onChange={(event) => setDrainageRulePattern(event.target.value)}
+                  onChange={(event) => {
+                    setDrainageRulePattern(event.target.value);
+                    clearDrainageRuleFieldError("pattern");
+                  }}
                   placeholder={drainageRuleOperator === "ALWAYS" ? "Non utilisé avec ALWAYS" : "Ex: OBSTR"}
                   disabled={isDrainageRuleBusy || drainageRuleOperator === "ALWAYS"}
                 />
+                {drainageRuleFieldErrors.pattern ? <p className="field-error">{drainageRuleFieldErrors.pattern}</p> : null}
               </div>
             </div>
 
@@ -4643,16 +4974,24 @@ export default function App() {
               Règle active
             </label>
 
-            <label htmlFor="dr-rule-reco">Recommandation</label>
+            <label htmlFor="dr-rule-reco">
+              Recommandation <span className="field-label__required">*</span>
+            </label>
             <textarea
               id="dr-rule-reco"
-              className="input-textarea"
+              className={`input-textarea${drainageRuleFieldErrors.recommendation ? " cell-field--error" : ""}`}
               value={drainageRuleRecommendation}
-              onChange={(event) => setDrainageRuleRecommendation(event.target.value)}
+              onChange={(event) => {
+                setDrainageRuleRecommendation(event.target.value);
+                clearDrainageRuleFieldError("recommendation");
+              }}
               placeholder="Texte de recommandation assainissement"
               rows={3}
               disabled={isDrainageRuleBusy}
             />
+            {drainageRuleFieldErrors.recommendation ? (
+              <p className="field-error">{drainageRuleFieldErrors.recommendation}</p>
+            ) : null}
 
             <div className="editor-actions">
               <button className="primary" type="button" onClick={handleSaveDrainageRule} disabled={isDrainageRuleBusy}>
@@ -4684,12 +5023,19 @@ export default function App() {
         <section className="panel editor-panel">
           <h2>Suivi des entretiens</h2>
           <p className="muted">Enregistre les interventions réalisées pour garder un état dynamique du réseau.</p>
+          {maintenanceFormError ? <p className="modal-feedback modal-feedback--error">{maintenanceFormError}</p> : null}
 
-          <label htmlFor="maintenance-road">Voie</label>
+          <label htmlFor="maintenance-road">
+            Voie <span className="field-label__required">*</span>
+          </label>
           <select
             id="maintenance-road"
+            className={maintenanceFieldErrors.roadId ? "cell-field--error" : undefined}
             value={maintenanceRoadId}
-            onChange={(event) => setMaintenanceRoadId(event.target.value ? Number(event.target.value) : "")}
+            onChange={(event) => {
+              setMaintenanceRoadId(event.target.value ? Number(event.target.value) : "");
+              clearMaintenanceFieldError("roadId");
+            }}
             disabled={isMaintenanceBusy}
           >
             <option value="">Sélectionner une voie</option>
@@ -4699,6 +5045,7 @@ export default function App() {
               </option>
             ))}
           </select>
+          {maintenanceFieldErrors.roadId ? <p className="field-error">{maintenanceFieldErrors.roadId}</p> : null}
 
           <label htmlFor="maintenance-degradation">Dégradation concernée</label>
           <select
@@ -4715,15 +5062,22 @@ export default function App() {
             ))}
           </select>
 
-          <label htmlFor="maintenance-type">Type d'entretien</label>
+          <label htmlFor="maintenance-type">
+            Type d'entretien <span className="field-label__required">*</span>
+          </label>
           <input
             id="maintenance-type"
             list="maintenance-type-options"
+            className={maintenanceFieldErrors.type ? "cell-field--error" : undefined}
             value={maintenanceType}
-            onChange={(event) => setMaintenanceType(event.target.value)}
+            onChange={(event) => {
+              setMaintenanceType(event.target.value);
+              clearMaintenanceFieldError("type");
+            }}
             placeholder="Ex: Curage caniveaux"
             disabled={isMaintenanceBusy}
           />
+          {maintenanceFieldErrors.type ? <p className="field-error">{maintenanceFieldErrors.type}</p> : null}
           <datalist id="maintenance-type-options">
             {MAINTENANCE_TYPE_SUGGESTIONS.map((item) => (
               <option key={item} value={item} />
@@ -4734,7 +5088,10 @@ export default function App() {
           <select
             id="maintenance-status"
             value={maintenanceStatus}
-            onChange={(event) => setMaintenanceStatus(event.target.value as MaintenanceInterventionStatus)}
+            onChange={(event) => {
+              setMaintenanceStatus(event.target.value as MaintenanceInterventionStatus);
+              clearMaintenanceFieldError("completionDate");
+            }}
             disabled={isMaintenanceBusy}
           >
             {MAINTENANCE_STATUSES.map((item) => (
@@ -4746,25 +5103,44 @@ export default function App() {
 
           <div className="maintenance-form-grid">
             <div className="cell-field">
-              <label htmlFor="maintenance-date">Date prévue</label>
+              <label htmlFor="maintenance-date">
+                Date prévue <span className="field-label__required">*</span>
+              </label>
               <input
                 id="maintenance-date"
                 type="date"
+                className={maintenanceFieldErrors.interventionDate ? "cell-field--error" : undefined}
                 value={maintenanceDate}
-                onChange={(event) => setMaintenanceDate(event.target.value)}
+                onChange={(event) => {
+                  setMaintenanceDate(event.target.value);
+                  clearMaintenanceFieldError("interventionDate");
+                  clearMaintenanceFieldError("completionDate");
+                }}
                 disabled={isMaintenanceBusy}
               />
+              {maintenanceFieldErrors.interventionDate ? (
+                <p className="field-error">{maintenanceFieldErrors.interventionDate}</p>
+              ) : null}
             </div>
 
-            <div className="cell-field">
-              <label htmlFor="maintenance-completion-date">Date réelle / clôture</label>
+            <div className={`cell-field${maintenanceFieldErrors.completionDate ? " cell-field--error" : ""}`}>
+              <label htmlFor="maintenance-completion-date">
+                Date réelle / clôture{maintenanceStatus === "TERMINE" ? <span className="field-label__required"> *</span> : null}
+              </label>
               <input
                 id="maintenance-completion-date"
                 type="date"
+                className={maintenanceFieldErrors.completionDate ? "cell-field--error" : undefined}
                 value={maintenanceCompletionDate}
-                onChange={(event) => setMaintenanceCompletionDate(event.target.value)}
+                onChange={(event) => {
+                  setMaintenanceCompletionDate(event.target.value);
+                  clearMaintenanceFieldError("completionDate");
+                }}
                 disabled={isMaintenanceBusy}
               />
+              {maintenanceFieldErrors.completionDate ? (
+                <p className="field-error">{maintenanceFieldErrors.completionDate}</p>
+              ) : null}
             </div>
 
             <div className="cell-field">
@@ -4794,10 +5170,17 @@ export default function App() {
               <input
                 id="maintenance-deflection-before"
                 type="number"
+                className={maintenanceFieldErrors.deflectionBefore ? "cell-field--error" : undefined}
                 value={maintenanceDeflectionBefore}
-                onChange={(event) => setMaintenanceDeflectionBefore(event.target.value)}
+                onChange={(event) => {
+                  setMaintenanceDeflectionBefore(event.target.value);
+                  clearMaintenanceFieldError("deflectionBefore");
+                }}
                 disabled={isMaintenanceBusy}
               />
+              {maintenanceFieldErrors.deflectionBefore ? (
+                <p className="field-error">{maintenanceFieldErrors.deflectionBefore}</p>
+              ) : null}
             </div>
 
             <div className="cell-field">
@@ -4805,10 +5188,17 @@ export default function App() {
               <input
                 id="maintenance-deflection-after"
                 type="number"
+                className={maintenanceFieldErrors.deflectionAfter ? "cell-field--error" : undefined}
                 value={maintenanceDeflectionAfter}
-                onChange={(event) => setMaintenanceDeflectionAfter(event.target.value)}
+                onChange={(event) => {
+                  setMaintenanceDeflectionAfter(event.target.value);
+                  clearMaintenanceFieldError("deflectionAfter");
+                }}
                 disabled={isMaintenanceBusy}
               />
+              {maintenanceFieldErrors.deflectionAfter ? (
+                <p className="field-error">{maintenanceFieldErrors.deflectionAfter}</p>
+              ) : null}
             </div>
 
             <div className="cell-field">
@@ -4901,11 +5291,16 @@ export default function App() {
               <input
                 id="maintenance-cost"
                 type="number"
+                className={maintenanceFieldErrors.costAmount ? "cell-field--error" : undefined}
                 value={maintenanceCostAmount}
-                onChange={(event) => setMaintenanceCostAmount(event.target.value)}
+                onChange={(event) => {
+                  setMaintenanceCostAmount(event.target.value);
+                  clearMaintenanceFieldError("costAmount");
+                }}
                 placeholder="FCFA"
                 disabled={isMaintenanceBusy}
               />
+              {maintenanceFieldErrors.costAmount ? <p className="field-error">{maintenanceFieldErrors.costAmount}</p> : null}
             </div>
           </div>
 
@@ -5219,10 +5614,13 @@ export default function App() {
     return (
       <main className="workspace workspace--full">
         <section className="panel table-panel table-panel--full sheet-print-view">
-          {renderStandardSheetPrintHeader(activeSheet?.title ?? "Feuil1")}
+          {renderStandardSheetPrintHeader(
+            activeSheet ? getSheetDisplayName(activeSheet.name) : "Campagne",
+            activeSheet ? getSheetPrintSubtitle(activeSheet.name) : getSheetPrintSubtitle("Feuil1")
+          )}
           <div className="dashboard-card__header">
             <div>
-              <h2>{activeSheet?.title ?? "Feuil1"}</h2>
+              <h2>{activeSheet ? getSheetDisplayName(activeSheet.name) : "Campagne"}</h2>
               <p className="muted">
                 Feuille de campagnes de mesures de déflexion rattachées aux voies réelles du réseau.
               </p>
@@ -5238,7 +5636,7 @@ export default function App() {
                 <span>Utiliser dans l'aide à la décision</span>
               </button>
               {renderSheetPrintButton(
-                activeSheet?.title ?? "Feuil1",
+                activeSheet ? getSheetDisplayName(activeSheet.name) : "Campagne",
                 !campaign,
                 "Sélectionnez d'abord une campagne avant d'imprimer."
               )}
@@ -5868,10 +6266,23 @@ export default function App() {
       return null;
     }
 
+    const editorTitle =
+      activeSheet.name === "Feuil2"
+        ? "Référentiel central des sections"
+        : activeSheet.name === "Feuil6"
+          ? "Référentiel central des voies"
+          : activeSheet.title;
+    const editorHelp =
+      activeSheet.name === "Feuil2"
+        ? "Ajoute ou modifie ici la section maître utilisée dans tout le réseau. Les champs marqués d'un * sont obligatoires."
+        : activeSheet.name === "Feuil6"
+          ? "Ajoute ou modifie ici la voie maître utilisée dans tout le système. Les champs marqués d'un * sont obligatoires."
+          : "Les champs marqués d'un * sont obligatoires.";
+
     return (
       <section ref={sheetEditorRef} className="panel editor-panel editor-panel--sheet">
-        <h2>{activeSheet.title}</h2>
-        <p className="field-help">Les champs marqués d'un * sont obligatoires.</p>
+        <h2>{editorTitle}</h2>
+        <p className="field-help">{editorHelp}</p>
         {draftFormError ? <p className="modal-feedback modal-feedback--error">{draftFormError}</p> : null}
 
         <div className="cells-grid">
@@ -5967,10 +6378,13 @@ export default function App() {
       <main className="workspace">
         {renderSheetEditorPanel()}
         <section className="panel table-panel table-panel--full sheet-print-view">
-          {renderStandardSheetPrintHeader(activeSheet?.title ?? "Feuil2")}
+          {renderStandardSheetPrintHeader(
+            activeSheet ? getSheetDisplayName(activeSheet.name) : "Sections",
+            activeSheet ? getSheetPrintSubtitle(activeSheet.name) : getSheetPrintSubtitle("Feuil2")
+          )}
           <div className="dashboard-card__header">
             <div>
-              <h2>{activeSheet?.title ?? "Feuil2"}</h2>
+              <h2>{activeSheet ? getSheetDisplayName(activeSheet.name) : "Sections"}</h2>
               <p className="muted">
                 Référentiel des sections du réseau, groupé par SAP, utilisé pour structurer les voies et leurs bornes.
               </p>
@@ -5981,7 +6395,7 @@ export default function App() {
                 <span className="pill">Sections: {totalSections}</span>
                 <span className="pill">Linéaire: {formatMeasurementNumber(totalLength)} m</span>
               </div>
-              {renderSheetPrintButton(activeSheet?.title ?? "Feuil2")}
+              {renderSheetPrintButton(activeSheet ? getSheetDisplayName(activeSheet.name) : "Sections")}
             </div>
           </div>
 
@@ -6055,14 +6469,19 @@ export default function App() {
                                 className="row-action row-action--icon row-action--icon-sm"
                                 type="button"
                                 onClick={() =>
-                                  handleEditSourceRow(
-                                    item.sourceRow,
-                                    "Cette section centralisée n'a pas de ligne source Feuil2 modifiable."
-                                  )
+                                  item.sourceRow
+                                    ? handleEditSourceRow(
+                                        item.sourceRow,
+                                        "Cette section centralisée n'a pas de ligne source Feuil2 modifiable."
+                                      )
+                                    : void handleCreateSourceRowAndEdit(
+                                        "Feuil2",
+                                        buildFeuil2SourcePayload(item),
+                                        `Ligne maître Feuil2 créée pour ${toDisplay(item.roadLabel)} puis ouverte en édition.`
+                                      )
                                 }
-                                title="Éditer"
-                                aria-label="Éditer"
-                                disabled={!item.sourceRow}
+                                title={item.sourceRow ? "Éditer" : "Créer la ligne maître puis éditer"}
+                                aria-label={item.sourceRow ? "Éditer" : "Créer la ligne maître puis éditer"}
                               >
                                 <Pencil size={15} aria-hidden="true" />
                               </button>
@@ -6119,10 +6538,13 @@ export default function App() {
       <main className="workspace">
         {renderSheetEditorPanel()}
         <section className="panel table-panel table-panel--full sheet-print-view">
-          {renderStandardSheetPrintHeader(activeSheet?.title ?? "Feuil6")}
+          {renderStandardSheetPrintHeader(
+            activeSheet ? getSheetDisplayName(activeSheet.name) : "Voies",
+            activeSheet ? getSheetPrintSubtitle(activeSheet.name) : getSheetPrintSubtitle("Feuil6")
+          )}
           <div className="dashboard-card__header">
             <div>
-              <h2>{activeSheet?.title ?? "Feuil6"}</h2>
+              <h2>{activeSheet ? getSheetDisplayName(activeSheet.name) : "Voies"}</h2>
               <p className="muted">
                 Répertoire codifié central des voies: type, code, nom proposé, itinéraire et justification, réutilisés dans tout le système.
               </p>
@@ -6131,10 +6553,10 @@ export default function App() {
               <div className="measurement-toolbar__meta">
                 <span className="pill">SAP: {feuil6Groups.length}</span>
                 <span className="pill">Voies: {totalRoads}</span>
-                <span className="pill">Liées: {feuil6LinkedCount}</span>
+                <span className="pill">Lignes maîtres: {feuil6LinkedCount}</span>
                 <span className="pill">Linéaire: {formatMeasurementNumber(totalLinear)} m</span>
               </div>
-              {renderSheetPrintButton(activeSheet?.title ?? "Feuil6")}
+              {renderSheetPrintButton(activeSheet ? getSheetDisplayName(activeSheet.name) : "Voies")}
             </div>
           </div>
 
@@ -6208,14 +6630,19 @@ export default function App() {
                                   className="row-action row-action--icon row-action--icon-sm"
                                   type="button"
                                   onClick={() =>
-                                    handleEditSourceRow(
-                                      item.sourceRow,
-                                      "Cette voie centrale n'a pas encore de ligne source Feuil6 modifiable."
-                                    )
+                                    item.sourceRow
+                                      ? handleEditSourceRow(
+                                          item.sourceRow,
+                                          "Cette voie centrale n'a pas encore de ligne source Feuil6 modifiable."
+                                        )
+                                      : void handleCreateSourceRowAndEdit(
+                                          "Feuil6",
+                                          buildFeuil6SourcePayload(item),
+                                          `Ligne maître Feuil6 créée pour ${toDisplay(item.roadCode)} puis ouverte en édition.`
+                                        )
                                   }
-                                  title="Éditer"
-                                  aria-label="Éditer"
-                                  disabled={!item.sourceRow}
+                                  title={item.sourceRow ? "Éditer" : "Créer la ligne maître puis éditer"}
+                                  aria-label={item.sourceRow ? "Éditer" : "Créer la ligne maître puis éditer"}
                                 >
                                   <Pencil size={15} aria-hidden="true" />
                                 </button>
@@ -6319,10 +6746,13 @@ export default function App() {
           </section>
         </div>
         <section className="panel table-panel table-panel--full sheet-print-view">
-          {renderStandardSheetPrintHeader(activeSheet?.title ?? "Feuil3")}
+          {renderStandardSheetPrintHeader(
+            activeSheet ? getSheetDisplayName(activeSheet.name) : "Diagnostic",
+            activeSheet ? getSheetPrintSubtitle(activeSheet.name) : getSheetPrintSubtitle("Feuil3")
+          )}
           <div className="dashboard-card__header">
             <div>
-              <h2>{activeSheet?.title ?? "Feuil3"}</h2>
+              <h2>{activeSheet ? getSheetDisplayName(activeSheet.name) : "Diagnostic"}</h2>
               <p className="muted">
                 Profil technique détaillé des voies: chaussée, assainissement, trottoirs et nature d'intervention recommandée.
               </p>
@@ -6334,7 +6764,7 @@ export default function App() {
                 <span className="pill">À déterminer: {feuil3PendingInterventions}</span>
                 <span className="pill">Assainissement à surveiller: {feuil3DrainageAlerts}</span>
               </div>
-              {renderSheetPrintButton(activeSheet?.title ?? "Feuil3")}
+              {renderSheetPrintButton(activeSheet ? getSheetDisplayName(activeSheet.name) : "Diagnostic")}
             </div>
           </div>
 
@@ -6546,10 +6976,13 @@ export default function App() {
           </section>
         </div>
         <section className="panel table-panel table-panel--full sheet-print-view">
-          {renderStandardSheetPrintHeader(activeSheet?.title ?? "Feuil5")}
+          {renderStandardSheetPrintHeader(
+            activeSheet ? getSheetDisplayName(activeSheet.name) : "Compléments",
+            activeSheet ? getSheetPrintSubtitle(activeSheet.name) : getSheetPrintSubtitle("Feuil5")
+          )}
           <div className="dashboard-card__header">
             <div>
-              <h2>{activeSheet?.title ?? "Feuil5"}</h2>
+              <h2>{activeSheet ? getSheetDisplayName(activeSheet.name) : "Compléments"}</h2>
               <p className="muted">
                 Compléments techniques des sections: assainissement, largeur minimale, trottoirs et stationnement, rattachés à la même voie centrale.
               </p>
@@ -6561,7 +6994,7 @@ export default function App() {
                 <span className="pill">Stationnement recensé: {feuil5ParkingCount}</span>
                 <span className="pill">Assainissement à surveiller: {feuil5DrainageWatchCount}</span>
               </div>
-              {renderSheetPrintButton(activeSheet?.title ?? "Feuil5")}
+              {renderSheetPrintButton(activeSheet ? getSheetDisplayName(activeSheet.name) : "Compléments")}
             </div>
           </div>
 
@@ -6752,13 +7185,16 @@ export default function App() {
         {renderSheetEditorPanel()}
 
         <section className="panel table-panel sheet-print-view">
-          {renderStandardSheetPrintHeader(activeSheet?.title ?? "Feuille")}
+          {renderStandardSheetPrintHeader(
+            activeSheet ? getSheetDisplayName(activeSheet.name) : "Feuille",
+            activeSheet ? getSheetPrintSubtitle(activeSheet.name) : undefined
+          )}
           <div className="dashboard-card__header">
             <div>
-              <h2>{activeSheet?.title ?? "Feuille"}</h2>
+              <h2>{activeSheet ? getSheetDisplayName(activeSheet.name) : "Feuille"}</h2>
               <p className="muted">Impression du tableau de la feuille active, avec les colonnes et lignes actuellement affichées.</p>
             </div>
-            {renderSheetPrintButton(activeSheet?.title ?? "Feuille")}
+            {renderSheetPrintButton(activeSheet ? getSheetDisplayName(activeSheet.name) : "Feuille")}
           </div>
 
           <div className="table-toolbar">
@@ -6920,26 +7356,32 @@ export default function App() {
         ) : null}
         <nav className="hero__nav">
           <button className={activeView === "dashboard" ? "active" : ""} type="button" onClick={() => setActiveView("dashboard")}>
-            Tableau de bord
+            <BarChart3 size={16} aria-hidden="true" />
+            <span>Tableau de bord</span>
           </button>
           <button className={activeView === "decision" ? "active" : ""} type="button" onClick={() => setActiveView("decision")}>
-            Aide à la décision
+            <Gauge size={16} aria-hidden="true" />
+            <span>Aide à la décision</span>
           </button>
           <button className={activeView === "catalogue" ? "active" : ""} type="button" onClick={() => setActiveView("catalogue")}>
-            Catalogue
+            <BookOpen size={16} aria-hidden="true" />
+            <span>Catalogue</span>
           </button>
           <button
             className={activeView === "degradations" ? "active" : ""}
             type="button"
             onClick={() => setActiveView("degradations")}
           >
-            Dégradations
+            <TriangleAlert size={16} aria-hidden="true" />
+            <span>Dégradations</span>
           </button>
           <button className={activeView === "maintenance" ? "active" : ""} type="button" onClick={() => setActiveView("maintenance")}>
-            Suivi
+            <ClipboardPlus size={16} aria-hidden="true" />
+            <span>Suivi</span>
           </button>
           <button className={activeView === "history" ? "active" : ""} type="button" onClick={() => setActiveView("history")}>
-            Historique ({status?.decisionHistoryCount ?? 0})
+            <History size={16} aria-hidden="true" />
+            <span>Historique ({status?.decisionHistoryCount ?? 0})</span>
           </button>
           {definitions.map((sheet) => (
             <button
@@ -6948,7 +7390,8 @@ export default function App() {
               type="button"
               onClick={() => setActiveView(`sheet:${sheet.name}`)}
             >
-              {sheet.name}
+              {renderSheetNavIcon(sheet.name)}
+              <span>{getSheetDisplayName(sheet.name)}</span>
             </button>
           ))}
         </nav>

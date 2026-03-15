@@ -172,6 +172,14 @@ body {
   border-radius: 999px;
   padding: 8px 14px;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+}
+
+.hero__nav button svg {
+  flex: 0 0 auto;
 }
 
 .hero__nav button.active {
@@ -1124,6 +1132,7 @@ label {
 }
 
 .print-sheet-header,
+.print-sheet-heading,
 .print-sheet-footer {
   display: none;
 }
@@ -1275,6 +1284,7 @@ label {
   }
 
   .print-sheet-header,
+  .print-sheet-heading,
   .print-sheet-footer {
     display: flex;
   }
@@ -1282,9 +1292,14 @@ label {
   .print-sheet-header {
     justify-content: flex-start;
     align-items: flex-start;
-    margin-bottom: 28px;
+    margin-bottom: 18px;
     padding-bottom: 18px;
     border-bottom: 1px solid #d9d9d9;
+  }
+
+  .print-sheet-heading {
+    display: block;
+    margin: 0 0 20px;
   }
 
   .print-sheet-header__brand {
@@ -1292,17 +1307,32 @@ label {
     gap: 20px;
   }
 
-  .print-sheet-header__brand strong {
-    display: block;
-    font-size: 1.55rem;
-    margin-bottom: 6px;
-    color: #0a2f8f;
-  }
+.print-sheet-header__brand strong {
+  display: block;
+  font-size: 1.55rem;
+  margin-bottom: 6px;
+  color: #0a2f8f;
+}
 
-  .print-sheet-header__brand div div {
-    font-size: 1rem;
-    color: #526580;
-  }
+.print-sheet-header__brand div div {
+  font-size: 1rem;
+  color: #526580;
+}
+
+.print-sheet-header__title {
+  margin: 0 0 6px;
+  font-size: 1.4rem;
+  line-height: 1.2;
+  color: #0a2f8f;
+}
+
+.print-sheet-header__subtitle {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.4;
+  color: #526580;
+  max-width: 900px;
+}
 
   .print-sheet-footer {
     display: none !important;
@@ -1336,26 +1366,41 @@ label {
   .sheet-print-view table .col-actions,
   .decision-output table .col-actions {
     display: none !important;
+    width: 0 !important;
+    min-width: 0 !important;
+    max-width: 0 !important;
+    padding: 0 !important;
+    border: none !important;
   }
 
+  .sheet-print-view > .dashboard-card__header,
   .sheet-print-view > .dashboard-card__header .muted,
   .sheet-print-view > .dashboard-card__header .measurement-toolbar__meta {
     display: none !important;
   }
 
-  .sheet-print-view .dashboard-card__header {
-    margin-bottom: 8px;
-  }
-
   .sheet-print-view .card,
   .sheet-print-view .feuil2-group,
   .sheet-print-view .measurement-summary {
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
     margin-top: 0;
     margin-bottom: 8px;
     padding: 8px;
     break-inside: auto;
     page-break-inside: auto;
     overflow: visible !important;
+  }
+
+  .sheet-print-view .table-wrap,
+  .sheet-print-view .feuil2-table-wrap,
+  .sheet-print-view .measurement-table-wrap {
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
   }
 
   .sheet-print-view h2 {
@@ -1434,6 +1479,20 @@ label {
     word-break: break-word;
     overflow-wrap: anywhere;
     vertical-align: top;
+  }
+
+  .sheet-print-view th:first-child,
+  .sheet-print-view td:first-child,
+  .decision-output th:first-child,
+  .decision-output td:first-child {
+    border-left: 1px solid #ecf2fb;
+  }
+
+  .sheet-print-view tr > .col-actions + th,
+  .sheet-print-view tr > .col-actions + td,
+  .decision-output tr > .col-actions + th,
+  .decision-output tr > .col-actions + td {
+    border-left: 1px solid #ecf2fb !important;
   }
 
   .sheet-print-view tr {
