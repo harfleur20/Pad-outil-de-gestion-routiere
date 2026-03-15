@@ -4589,9 +4589,28 @@ export default function App() {
   function renderCatalogueView() {
     return (
       <main className="workspace workspace--full">
-        <section className="panel table-panel table-panel--full">
-          <h2>Catalogue des voies</h2>
-          <p className="muted">Référence complète des voies par secteur SAP.</p>
+        <section className="panel table-panel table-panel--full sheet-print-view">
+          {renderStandardSheetPrintHeader(
+            "Catalogue des voies",
+            "Référence complète des voies par secteur SAP."
+          )}
+          <div className="dashboard-card__header">
+            <div>
+              <h2>Catalogue des voies</h2>
+              <p className="muted">Référence complète des voies par secteur SAP.</p>
+            </div>
+            <div className="sheet-header-actions">
+              <button
+                className="row-action row-action--print row-action--icon row-action--icon-sm"
+                type="button"
+                onClick={() => void exportCurrentPdf("catalogue-des-voies-pad")}
+                title="Imprimer le catalogue des voies"
+                aria-label="Imprimer le catalogue des voies"
+              >
+                <Printer size={15} aria-hidden="true" />
+              </button>
+            </div>
+          </div>
 
           <div className="table-toolbar table-toolbar--triple">
             <select value={selectedSap} onChange={(event) => setSelectedSap(event.target.value)}>
@@ -4665,6 +4684,8 @@ export default function App() {
               </tbody>
             </table>
           </div>
+
+          {renderStandardSheetPrintFooter()}
         </section>
       </main>
     );
@@ -4673,9 +4694,28 @@ export default function App() {
   function renderDegradationsView() {
     return (
       <main className="workspace workspace--full">
-        <section className="panel table-panel table-panel--full">
-          <h2>Catalogue des dégradations</h2>
-          <p className="muted">Liste des dégradations, causes probables et solution de maintenance.</p>
+        <section className="panel table-panel table-panel--full sheet-print-view">
+          {renderStandardSheetPrintHeader(
+            "Catalogue des dégradations",
+            "Liste des dégradations, causes probables et solution de maintenance."
+          )}
+          <div className="dashboard-card__header">
+            <div>
+              <h2>Catalogue des dégradations</h2>
+              <p className="muted">Liste des dégradations, causes probables et solution de maintenance.</p>
+            </div>
+            <div className="sheet-header-actions">
+              <button
+                className="row-action row-action--print row-action--icon row-action--icon-sm"
+                type="button"
+                onClick={() => void exportCurrentPdf("catalogue-des-degradations-pad")}
+                title="Imprimer le catalogue des dégradations"
+                aria-label="Imprimer le catalogue des dégradations"
+              >
+                <Printer size={15} aria-hidden="true" />
+              </button>
+            </div>
+          </div>
 
           <div className="table-toolbar table-toolbar--triple">
             <input
@@ -5010,6 +5050,8 @@ export default function App() {
               </button>
             </div>
           </div>
+
+          {renderStandardSheetPrintFooter()}
         </section>
       </main>
     );
