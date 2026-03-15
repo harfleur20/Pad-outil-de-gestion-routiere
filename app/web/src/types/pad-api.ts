@@ -351,3 +351,7 @@ export type MaintenanceInterventionPayload = {
   costAmount?: number;
 };
 
+export type PdfExportResult = {
+  filePath: string;
+};
+

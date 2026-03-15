@@ -1,8 +1,11 @@
 ﻿const { contextBridge, ipcRenderer } = require("electron");
 
+const metadata = ipcRenderer.sendSync("app:getMetadataSync") || {};
+const appName = typeof metadata.appName === "string" ? metadata.appName : "PAD Maintenance Routière";
+const appVersion = typeof metadata.appVersion === "string" ? metadata.appVersion : "0.0.0";
 contextBridge.exposeInMainWorld("padApp", {
-  appName: "PAD Maintenance Routière",
-  appVersion: "0.6.0",
+  appName,
+  appVersion,
   data: {
     getStatus: () => ipcRenderer.invoke("data:status"),
     importFromExcel: (excelPath) => ipcRenderer.invoke("data:importFromExcel", excelPath),
@@ -73,7 +76,11 @@ contextBridge.exposeInMainWorld("padApp", {
     exportHistoryXlsx: () => ipcRenderer.invoke("reporting:exportHistoryXlsx"),
     exportMaintenanceXlsx: () => ipcRenderer.invoke("reporting:exportMaintenanceXlsx")
   },
+  printing: {
+    exportCurrentViewPdf: (suggestedName) => ipcRenderer.invoke("printing:exportCurrentViewPdf", suggestedName)
+  },
   ping: () => true
 });
+
 
 

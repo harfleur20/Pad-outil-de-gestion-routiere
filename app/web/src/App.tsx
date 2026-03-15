@@ -2302,28 +2302,70 @@ export default function App() {
     }
   }
 
+  async function exportCurrentPdf(suggestedName: string) {
+    if (!window.padApp?.printing?.exportCurrentViewPdf) {
+      window.print();
+      return;
+    }
+    try {
+      const result = await padApi.exportCurrentViewPdf(suggestedName);
+      if (result?.filePath) {
+        setNotice(`PDF généré : ${result.filePath}`);
+      }
+      setError("");
+    } catch (err) {
+      setError(toErrorMessage(err));
+    }
+  }
+
   function handlePrintDecision() {
-    window.print();
+    void exportCurrentPdf("fiche-decision-pad");
   }
 
   function handlePrintActiveSheet() {
     if (!activeSheet) {
       return;
     }
-    window.print();
+    void exportCurrentPdf(activeSheet.title || activeSheet.name || "impression-feuille");
   }
 
-  function renderSheetPrintButton(sheetTitle?: string) {
+  function renderSheetPrintButton(sheetTitle?: string, disabled?: boolean, disabledReason?: string) {
+    const label = `Imprimer ${sheetTitle || "la feuille"}`;
     return (
       <button
         className="row-action row-action--print row-action--icon row-action--icon-sm"
         type="button"
         onClick={handlePrintActiveSheet}
-        title={`Imprimer ${sheetTitle || "la feuille"}`}
-        aria-label={`Imprimer ${sheetTitle || "la feuille"}`}
+        title={disabled ? disabledReason || label : label}
+        aria-label={disabled ? disabledReason || label : label}
+        disabled={Boolean(disabled)}
       >
         <Printer size={15} aria-hidden="true" />
       </button>
+    );
+  }
+
+  function renderStandardSheetPrintHeader(_sheetTitle?: string) {
+    return (
+      <div className="print-sheet-header">
+        <div className="print-sheet-header__brand">
+          <img className="print-sheet-header__logo" src="/logo-pad.png" alt="Logo Port Autonome de Douala" />
+          <div>
+            <strong>{appName}</strong>
+            <div>Pilotez la maintenance routière du PAD avec des décisions rapides et fiables.</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function renderStandardSheetPrintFooter() {
+    return (
+      <div className="print-sheet-footer">
+        <span className="print-sheet-footer__left">{appName}</span>
+        <span className="print-sheet-footer__page" aria-hidden="true" />
+        <span className="print-sheet-footer__right">Version {appVersion}</span>
+      </div>
     );
   }
 
@@ -3687,7 +3729,7 @@ export default function App() {
                 <table className="table--measurements table--measurements-compact">
                   <thead>
                     <tr>
-                      <th>Action</th>
+                      <th className="col-actions">Action</th>
                       <th>PK</th>
                       <th>Dc</th>
                       <th>Defl.Brute.Moy</th>
@@ -3697,7 +3739,7 @@ export default function App() {
                   <tbody>
                     {measurementRows.map((measurement) => (
                       <tr key={measurement.id}>
-                        <td>
+                        <td className="col-actions">
                           <button
                             className="row-action row-action--use row-action--with-icon row-action--compact"
                             type="button"
@@ -3951,8 +3993,9 @@ export default function App() {
               </div>
 
               <div className="print-sheet-footer">
-                <span>{appName}</span>
-                <span>Version {appVersion}</span>
+                <span className="print-sheet-footer__left">{appName}</span>
+                <span className="print-sheet-footer__page" aria-hidden="true" />
+                <span className="print-sheet-footer__right">Version {appVersion}</span>
               </div>
             </>
           ) : null}
@@ -3989,7 +4032,7 @@ export default function App() {
             <table>
               <thead>
                 <tr>
-                  <th>Action</th>
+                  <th className="col-actions">Action</th>
                   <th>SAP</th>
                   <th>Code</th>
                   <th>Désignation</th>
@@ -4006,7 +4049,7 @@ export default function App() {
               <tbody>
                 {roads.map((road) => (
                   <tr key={road.id}>
-                    <td>
+                    <td className="col-actions">
                       <button
                         className="row-action row-action--evaluate row-action--with-icon"
                         type="button"
@@ -4066,7 +4109,7 @@ export default function App() {
             <table>
               <thead>
                 <tr>
-                  <th>Action</th>
+                  <th className="col-actions">Action</th>
                   <th>Dégradation</th>
                   <th>Nb causes</th>
                   <th>Cause principale</th>
@@ -4077,7 +4120,7 @@ export default function App() {
               <tbody>
                 {filteredDegradations.map((item) => (
                   <tr key={item.id} className={selectedDegradationId === item.id ? "is-selected" : ""}>
-                    <td>
+                    <td className="col-actions">
                       <div className="row-buttons">
                         <button
                           className="row-action row-action--configure row-action--with-icon"
@@ -4187,7 +4230,7 @@ export default function App() {
               <table>
                 <thead>
                   <tr>
-                    <th>Actions</th>
+                    <th className="col-actions">Actions</th>
                     <th>Ordre</th>
                     <th>Opérateur</th>
                     <th>Pattern</th>
@@ -4200,7 +4243,7 @@ export default function App() {
                 <tbody>
                   {drainageRules.map((rule) => (
                     <tr key={rule.id} className={editingDrainageRuleId === rule.id ? "is-selected" : ""}>
-                      <td>
+                      <td className="col-actions">
                         <div className="row-buttons">
                           <button
                             className="row-action row-action--icon"
@@ -4704,7 +4747,7 @@ export default function App() {
             <table>
               <thead>
                 <tr>
-                  <th>Actions</th>
+                  <th className="col-actions">Actions</th>
                   <th>Date</th>
                   <th>Statut</th>
                   <th>SAP</th>
@@ -4723,7 +4766,7 @@ export default function App() {
               <tbody>
                 {maintenanceRows.map((item) => (
                   <tr key={item.id} className={editingMaintenanceId === item.id ? "is-selected" : ""}>
-                    <td>
+                    <td className="col-actions">
                       <div className="row-buttons">
                         <button
                           className="row-action row-action--icon"
@@ -4893,6 +4936,7 @@ export default function App() {
     return (
       <main className="workspace workspace--full">
         <section className="panel table-panel table-panel--full sheet-print-view">
+          {renderStandardSheetPrintHeader(activeSheet?.title ?? "Feuil1")}
           <div className="dashboard-card__header">
             <div>
               <h2>{activeSheet?.title ?? "Feuil1"}</h2>
@@ -4910,7 +4954,11 @@ export default function App() {
                 <Gauge size={16} aria-hidden="true" />
                 <span>Utiliser dans l'aide à la décision</span>
               </button>
-              {renderSheetPrintButton(activeSheet?.title ?? "Feuil1")}
+              {renderSheetPrintButton(
+                activeSheet?.title ?? "Feuil1",
+                !campaign,
+                "Sélectionnez d'abord une campagne avant d'imprimer."
+              )}
             </div>
           </div>
 
@@ -5016,7 +5064,7 @@ export default function App() {
                 <table className="table--measurements">
                   <thead>
                     <tr>
-                      <th rowSpan={2}>Actions</th>
+                      <th className="col-actions" rowSpan={2}>Actions</th>
                       <th rowSpan={2}>PK</th>
                       <th colSpan={3}>Lecture comparateur 1/100mm</th>
                       <th rowSpan={2}>PK</th>
@@ -5037,7 +5085,7 @@ export default function App() {
                   <tbody>
                     {measurementRows.map((measurement) => (
                       <tr key={measurement.id}>
-                        <td>
+                        <td className="col-actions">
                           <div className="row-buttons row-buttons--compact row-buttons--wrap">
                             <button
                               className="row-action row-action--use row-action--with-icon row-action--compact"
@@ -5096,6 +5144,7 @@ export default function App() {
               </p>
             </div>
           )}
+          {renderStandardSheetPrintFooter()}
         </section>
 
         {isMeasurementCampaignModalOpen ? (
@@ -5635,6 +5684,7 @@ export default function App() {
       <main className="workspace">
         {renderSheetEditorPanel()}
         <section className="panel table-panel table-panel--full sheet-print-view">
+          {renderStandardSheetPrintHeader(activeSheet?.title ?? "Feuil2")}
           <div className="dashboard-card__header">
             <div>
               <h2>{activeSheet?.title ?? "Feuil2"}</h2>
@@ -5686,7 +5736,7 @@ export default function App() {
                   <table className="table--feuil2">
                     <thead>
                       <tr>
-                        <th>Actions</th>
+                        <th className="col-actions">Actions</th>
                         <th>N°</th>
                         <th>N° tronçon</th>
                         <th>N° section</th>
@@ -5700,7 +5750,7 @@ export default function App() {
                     <tbody>
                       {group.rows.map((item, index) => (
                         <tr key={item.row.id}>
-                          <td>
+                          <td className="col-actions">
                             <div className="row-buttons row-buttons--compact row-buttons--wrap">
                               <button
                                 className="row-action row-action--evaluate row-action--with-icon row-action--compact"
@@ -5752,6 +5802,7 @@ export default function App() {
               </div>
             ) : null}
           </div>
+          {renderStandardSheetPrintFooter()}
         </section>
       </main>
     );
@@ -5765,6 +5816,7 @@ export default function App() {
       <main className="workspace">
         {renderSheetEditorPanel()}
         <section className="panel table-panel table-panel--full sheet-print-view">
+          {renderStandardSheetPrintHeader(activeSheet?.title ?? "Feuil6")}
           <div className="dashboard-card__header">
             <div>
               <h2>{activeSheet?.title ?? "Feuil6"}</h2>
@@ -5818,7 +5870,7 @@ export default function App() {
                   <table className="table--feuil6">
                     <thead>
                       <tr>
-                        <th>Action</th>
+                        <th className="col-actions">Action</th>
                         <th>N°</th>
                         <th>Type de voie</th>
                           <th>Code</th>
@@ -5832,7 +5884,7 @@ export default function App() {
                       <tbody>
                         {group.rows.map((item, index) => (
                           <tr key={item.row.id}>
-                            <td>
+                            <td className="col-actions">
                               <div className="row-buttons row-buttons--compact row-buttons--wrap">
                                 <button
                                   className="row-action row-action--evaluate row-action--with-icon row-action--compact"
@@ -5890,6 +5942,7 @@ export default function App() {
               ) : null}
             </div>
           </div>
+          {renderStandardSheetPrintFooter()}
         </section>
       </main>
     );
@@ -5945,6 +5998,7 @@ export default function App() {
           </section>
         </div>
         <section className="panel table-panel table-panel--full sheet-print-view">
+          {renderStandardSheetPrintHeader(activeSheet?.title ?? "Feuil3")}
           <div className="dashboard-card__header">
             <div>
               <h2>{activeSheet?.title ?? "Feuil3"}</h2>
@@ -5997,7 +6051,7 @@ export default function App() {
                   <table className="table--feuil3">
                     <thead>
                       <tr>
-                        <th rowSpan={3}>Action</th>
+                        <th className="col-actions" rowSpan={3}>Action</th>
                         <th rowSpan={3}>N°</th>
                         <th rowSpan={3}>Voies</th>
                         <th rowSpan={3}>Désignation</th>
@@ -6026,7 +6080,7 @@ export default function App() {
                     <tbody>
                       {group.rows.map((item, index) => (
                         <tr key={item.row.id}>
-                          <td>
+                          <td className="col-actions">
                             <div className="row-buttons row-buttons--compact row-buttons--wrap">
                               <button
                                 className="row-action row-action--evaluate row-action--with-icon row-action--compact"
@@ -6086,6 +6140,7 @@ export default function App() {
               </div>
             ) : null}
           </div>
+          {renderStandardSheetPrintFooter()}
         </section>
       </main>
     );
@@ -6146,6 +6201,7 @@ export default function App() {
           </section>
         </div>
         <section className="panel table-panel table-panel--full sheet-print-view">
+          {renderStandardSheetPrintHeader(activeSheet?.title ?? "Feuil5")}
           <div className="dashboard-card__header">
             <div>
               <h2>{activeSheet?.title ?? "Feuil5"}</h2>
@@ -6198,7 +6254,7 @@ export default function App() {
                   <table className="table--feuil5">
                     <thead>
                       <tr>
-                        <th rowSpan={3}>Action</th>
+                        <th className="col-actions" rowSpan={3}>Action</th>
                         <th rowSpan={3}>N°</th>
                         <th rowSpan={3}>N° tronçon</th>
                         <th rowSpan={3}>N° sections</th>
@@ -6235,7 +6291,7 @@ export default function App() {
                     <tbody>
                       {group.rows.map((item, index) => (
                         <tr key={item.row.id}>
-                          <td>
+                          <td className="col-actions">
                             <div className="row-buttons row-buttons--compact row-buttons--wrap">
                               <button
                                 className="row-action row-action--evaluate row-action--with-icon row-action--compact"
@@ -6299,6 +6355,7 @@ export default function App() {
               </div>
             ) : null}
           </div>
+          {renderStandardSheetPrintFooter()}
         </section>
       </main>
     );
@@ -6326,6 +6383,7 @@ export default function App() {
         {renderSheetEditorPanel()}
 
         <section className="panel table-panel sheet-print-view">
+          {renderStandardSheetPrintHeader(activeSheet?.title ?? "Feuille")}
           <div className="dashboard-card__header">
             <div>
               <h2>{activeSheet?.title ?? "Feuille"}</h2>
@@ -6349,7 +6407,7 @@ export default function App() {
             <table>
               <thead>
                 <tr>
-                  <th>Actions</th>
+                  <th className="col-actions">Actions</th>
                   <th>N°</th>
                   {activeColumns.map((column) => (
                     <th key={`head-${column}`}>
@@ -6361,7 +6419,7 @@ export default function App() {
               <tbody>
                 {rows.map((row, index) => (
                   <tr key={row.id} className={editingRowId === row.id ? "is-selected" : ""}>
-                    <td>
+                    <td className="col-actions">
                       <div className="row-buttons">
                         <button
                           className="row-action row-action--icon"
@@ -6408,6 +6466,7 @@ export default function App() {
               </tbody>
             </table>
           </div>
+          {renderStandardSheetPrintFooter()}
         </section>
       </main>
     );

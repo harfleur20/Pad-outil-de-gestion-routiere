@@ -16,6 +16,7 @@ import type {
   MaintenanceInterventionItem,
   MaintenanceInterventionPayload,
   MaintenanceSolutionTemplate,
+  PdfExportResult,
   ReportExportResult,
   RoadCatalogItem,
   RoadMeasurementItem,
@@ -135,6 +136,9 @@ declare global {
         clearHistory: () => Promise<{ deleted: boolean }>;
         exportHistoryXlsx: () => Promise<ReportExportResult | null>;
         exportMaintenanceXlsx: () => Promise<ReportExportResult | null>;
+      };
+      printing: {
+        exportCurrentViewPdf: (suggestedName?: string) => Promise<PdfExportResult | null>;
       };
       ping: () => boolean;
     };

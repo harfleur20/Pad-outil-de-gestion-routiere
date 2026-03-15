@@ -14,6 +14,7 @@
   MaintenanceInterventionItem,
   MaintenanceInterventionPayload,
   MaintenanceSolutionTemplate,
+  PdfExportResult,
   ReportExportResult,
   RoadCatalogItem,
   RoadMeasurementItem,
@@ -295,6 +296,11 @@ export const padApi = {
   async exportMaintenanceHistoryXlsx(): Promise<ReportExportResult | null> {
     const bridge = requireBridge();
     return bridge.reporting.exportMaintenanceXlsx();
+  },
+
+  async exportCurrentViewPdf(suggestedName?: string): Promise<PdfExportResult | null> {
+    const bridge = requireBridge();
+    return bridge.printing.exportCurrentViewPdf(suggestedName);
   }
 };
 

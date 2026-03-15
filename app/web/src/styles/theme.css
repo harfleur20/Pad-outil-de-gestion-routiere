@@ -1210,17 +1210,28 @@ label {
 
 @media print {
   @page {
-    margin: 14mm 12mm;
+    size: A4 landscape;
+    margin: 9mm 8mm;
   }
 
+  html,
   body {
     background: #ffffff;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  body::before,
+  body::after {
+    display: none !important;
+    content: none !important;
   }
 
   .hero,
   .app-footer,
   .table-toolbar,
-  .editor-actions {
+  .editor-actions,
+  .editor-panel {
     display: none !important;
   }
 
@@ -1228,17 +1239,31 @@ label {
   .workspace,
   .workspace--decision,
   .workspace--full {
+    width: 100%;
     max-width: 100%;
     padding: 0;
     margin: 0;
     display: block;
+    background: #ffffff !important;
+    box-shadow: none !important;
+    border: none !important;
   }
 
+  #root,
   .panel,
   .card {
     box-shadow: none;
     border-color: #d9d9d9;
-    background: #ffffff;
+    background: #ffffff !important;
+  }
+
+  .panel {
+    padding: 10px;
+  }
+
+  .sheet-print-view {
+    border: none;
+    padding: 0;
   }
 
   .decision-form {
@@ -1280,13 +1305,7 @@ label {
   }
 
   .print-sheet-footer {
-    justify-content: space-between;
-    align-items: center;
-    margin-top: 16px;
-    padding-top: 10px;
-    border-top: 1px solid #d9d9d9;
-    color: #526580;
-    font-size: 0.82rem;
+    display: none !important;
   }
 
   .dashboard-card__header > button,
@@ -1314,9 +1333,112 @@ label {
     display: none !important;
   }
 
-  .sheet-print-view table th:first-child,
-  .sheet-print-view table td:first-child {
+  .sheet-print-view table .col-actions,
+  .decision-output table .col-actions {
     display: none !important;
+  }
+
+  .sheet-print-view > .dashboard-card__header .muted,
+  .sheet-print-view > .dashboard-card__header .measurement-toolbar__meta {
+    display: none !important;
+  }
+
+  .sheet-print-view .dashboard-card__header {
+    margin-bottom: 8px;
+  }
+
+  .sheet-print-view .card,
+  .sheet-print-view .feuil2-group,
+  .sheet-print-view .measurement-summary {
+    margin-top: 0;
+    margin-bottom: 8px;
+    padding: 8px;
+    break-inside: auto;
+    page-break-inside: auto;
+    overflow: visible !important;
+  }
+
+  .sheet-print-view h2 {
+    font-size: 1.2rem;
+  }
+
+  .sheet-print-view h3 {
+    font-size: 1rem;
+  }
+
+  .sheet-print-view .measurement-summary h3 {
+    margin-bottom: 4px;
+  }
+
+  .sheet-print-view .measurement-summary__grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 4px;
+    margin-top: 6px;
+  }
+
+  .sheet-print-view .measurement-summary__item {
+    padding: 5px 6px;
+    border-radius: 6px;
+  }
+
+  .sheet-print-view .measurement-summary__item span {
+    font-size: 0.56rem;
+    margin-bottom: 2px;
+  }
+
+  .sheet-print-view .measurement-summary__item strong {
+    font-size: 0.74rem;
+    line-height: 1.2;
+  }
+
+  .sheet-print-view td.cell-warning,
+  .decision-output td.cell-warning {
+    background: #fff3a8 !important;
+    color: #5c4600 !important;
+    font-weight: 700;
+  }
+
+  .sheet-print-view .status-pill--ok,
+  .decision-output .status-pill--ok,
+  .sheet-print-view .status-chip--termine,
+  .decision-output .status-chip--termine {
+    border-color: rgba(196, 214, 0, 0.58) !important;
+    background: rgba(196, 214, 0, 0.2) !important;
+    color: #556700 !important;
+  }
+
+  .sheet-print-view .status-pill--warning,
+  .decision-output .status-pill--warning,
+  .sheet-print-view .status-chip--en_cours,
+  .decision-output .status-chip--en_cours {
+    border-color: rgba(255, 214, 10, 0.6) !important;
+    background: rgba(255, 214, 10, 0.24) !important;
+    color: #725b00 !important;
+  }
+
+  .decision-output .card--solution-missing {
+    border-color: rgba(179, 32, 46, 0.32) !important;
+    background: rgba(179, 32, 46, 0.09) !important;
+  }
+
+  .sheet-print-view table {
+    width: 100%;
+    table-layout: fixed;
+    font-size: 0.64rem;
+  }
+
+  .sheet-print-view th,
+  .sheet-print-view td {
+    padding: 4px 5px;
+    white-space: normal;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    vertical-align: top;
+  }
+
+  .sheet-print-view tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
   }
 
   .table-wrap {
