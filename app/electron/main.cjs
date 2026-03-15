@@ -104,6 +104,7 @@ function registerIpcHandlers() {
 
   ipcMain.handle("sap:list", () => dataLayer.listSapSectors());
   ipcMain.handle("roads:list", (_event, filters) => dataLayer.listRoadCatalog(filters));
+  ipcMain.handle("roadSections:list", (_event, filters) => dataLayer.listRoadSections(filters));
   ipcMain.handle("measurement:listCampaigns", (_event, filters) => dataLayer.listMeasurementCampaigns(filters));
   ipcMain.handle("measurement:listRows", (_event, filters) => dataLayer.listRoadMeasurements(filters));
   ipcMain.handle("measurement:upsertCampaign", (_event, payload) => dataLayer.upsertMeasurementCampaign(payload));

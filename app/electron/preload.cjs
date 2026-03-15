@@ -35,6 +35,9 @@ contextBridge.exposeInMainWorld("padApp", {
   roads: {
     list: (filters) => ipcRenderer.invoke("roads:list", filters)
   },
+  roadSections: {
+    list: (filters) => ipcRenderer.invoke("roadSections:list", filters)
+  },
   measurement: {
     listCampaigns: (filters) => ipcRenderer.invoke("measurement:listCampaigns", filters),
     listRows: (filters) => ipcRenderer.invoke("measurement:listRows", filters),

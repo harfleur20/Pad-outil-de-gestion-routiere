@@ -19,6 +19,7 @@ import type {
   PdfExportResult,
   ReportExportResult,
   RoadCatalogItem,
+  RoadSectionItem,
   RoadMeasurementItem,
   RoadMeasurementPayload,
   SapSector,
@@ -61,6 +62,9 @@ declare global {
       };
       roads: {
         list: (filters?: { sapCode?: string; search?: string }) => Promise<RoadCatalogItem[]>;
+      };
+      roadSections: {
+        list: (filters?: { sapCode?: string; search?: string }) => Promise<RoadSectionItem[]>;
       };
       measurement: {
         listCampaigns: (filters?: {

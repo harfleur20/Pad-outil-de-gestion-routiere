@@ -164,6 +164,31 @@ export type RoadCatalogItem = {
   interventionHint?: string;
 };
 
+export type RoadSectionItem = {
+  id: number;
+  sectionKey: string;
+  sourceSheet: string;
+  sourceRowNo: number;
+  tronconNo: string;
+  sectionNo: string;
+  roadKey: string;
+  roadId: number | null;
+  sapCode: string;
+  roadCode: string;
+  designation: string;
+  startLabel: string;
+  endLabel: string;
+  lengthM: number | null;
+  widthM: number | null;
+  surfaceType: string;
+  pavementState: string;
+  drainageType: string;
+  drainageState: string;
+  sidewalkMinM: number | null;
+  interventionHint: string;
+  sourcePayload: string;
+};
+
 export type MeasurementCampaignItem = {
   id: number;
   campaignKey: string;

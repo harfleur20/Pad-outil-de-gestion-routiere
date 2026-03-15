@@ -37,6 +37,7 @@ import type {
   MaintenanceInterventionStatus,
   MaintenanceSolutionTemplate,
   RoadCatalogItem,
+  RoadSectionItem,
   RoadMeasurementItem,
   SapSector,
   SheetColumnKey,
@@ -619,6 +620,70 @@ function parseFeuil6SapMarker(value: unknown) {
   return "";
 }
 
+function compareSapCodes(left: string, right: string) {
+  const leftMatch = String(left ?? "").match(/([0-9]+)/);
+  const rightMatch = String(right ?? "").match(/([0-9]+)/);
+  if (leftMatch && rightMatch) {
+    const diff = Number(leftMatch[1]) - Number(rightMatch[1]);
+    if (diff !== 0) {
+      return diff;
+    }
+  }
+  return String(left ?? "").localeCompare(String(right ?? ""), "fr-FR");
+}
+
+function inferRoadTypeFromCode(roadCode: string) {
+  const normalized = normalizeRoadCompareKey(roadCode);
+  if (normalized.startsWith("BVD") || normalized.startsWith("BOULEVARD")) {
+    return "Boulevard";
+  }
+  if (normalized.startsWith("AV") || normalized.startsWith("AVENUE")) {
+    return "Avenue";
+  }
+  if (normalized.startsWith("RUE")) {
+    return "Rue";
+  }
+  return "";
+}
+
+function parseRoadSectionSourcePayload(sourcePayload: string) {
+  try {
+    const parsed = JSON.parse(sourcePayload || "{}");
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function getRoadSectionSourceRowNo(section: RoadSectionItem, sheetName: string) {
+  const parsed = parseRoadSectionSourcePayload(section.sourcePayload);
+  const rowNo = Number(parsed?.sources?.[sheetName]?.rowNo);
+  if (Number.isFinite(rowNo) && rowNo > 0) {
+    return rowNo;
+  }
+  if (section.sourceSheet === sheetName && Number(section.sourceRowNo) > 0) {
+    return Number(section.sourceRowNo);
+  }
+  return 0;
+}
+
+function getRoadSectionDisplayOrder(section: RoadSectionItem, sourceRow: SheetRow | null) {
+  if (sourceRow) {
+    return getDisplayRowNumber(sourceRow);
+  }
+  if (Number(section.sourceRowNo) > 0) {
+    return Number(section.sourceRowNo);
+  }
+  return section.id;
+}
+
+function toSheetCellValue(value: string | number | null | undefined) {
+  if (value === null || value === undefined) {
+    return "";
+  }
+  return String(value);
+}
+
 function resolveRoadFromFeuil2Row(row: SheetRow, roads: RoadCatalogItem[]) {
   const codeKey = normalizeRoadCompareKey(row.C);
   const designationKey = normalizeRoadCompareKey(row.D);
@@ -837,6 +902,7 @@ export default function App() {
 
   const [sapSectors, setSapSectors] = useState<SapSector[]>([]);
   const [allRoads, setAllRoads] = useState<RoadCatalogItem[]>([]);
+  const [allRoadSections, setAllRoadSections] = useState<RoadSectionItem[]>([]);
   const [roads, setRoads] = useState<RoadCatalogItem[]>([]);
   const [measurementCampaigns, setMeasurementCampaigns] = useState<MeasurementCampaignItem[]>([]);
   const [measurementRows, setMeasurementRows] = useState<RoadMeasurementItem[]>([]);
@@ -981,6 +1047,16 @@ export default function App() {
     }
     return allRoads.filter((road) => road.sapCode === maintenanceSap);
   }, [allRoads, maintenanceSap]);
+  const centralSapCodes = useMemo(
+    () =>
+      uniqueValues([
+        ...sapSectors.map((item) => item.code),
+        ...allRoads.map((item) => item.sapCode)
+      ])
+        .filter(Boolean)
+        .sort(compareSapCodes),
+    [allRoads, sapSectors]
+  );
   const latestMaintenance = maintenancePreviewRows[0] ?? null;
   const filteredDegradations = useMemo(() => {
     const searchTerm = degradationSearch.trim().toLowerCase();
@@ -1024,27 +1100,54 @@ export default function App() {
       return [];
     }
 
-    return rows
-      .map((row) => {
-        const sapCode = parseFeuil2SapCode(row);
-        const lengthM = parseNumberValue(row.G);
+    const normalizedSearch = search.trim().toLowerCase();
+    return allRoadSections
+      .filter((section) => {
+        if (!normalizedSearch) {
+          return true;
+        }
+        return [
+          section.tronconNo,
+          section.sectionNo,
+          section.roadCode,
+          section.designation,
+          section.startLabel,
+          section.endLabel,
+          section.sapCode
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(normalizedSearch);
+      })
+      .map((section) => {
+        const linkedRoad =
+          (section.roadId ? allRoads.find((road) => road.id === section.roadId) : null) ||
+          allRoads.find((road) => road.roadKey === section.roadKey) ||
+          null;
+        const sourceRowNo = getRoadSectionSourceRowNo(section, "Feuil2");
+        const sourceRow = sourceRowNo ? rows.find((row) => row.rowNo === sourceRowNo) ?? null : null;
         return {
-          row,
-          sapCode,
-          tronconNo: String(row.A ?? "").trim(),
-          sectionNo: String(row.B ?? "").trim(),
-          roadLabel: String(row.C ?? "").trim(),
-          designation: String(row.D ?? "").trim(),
-          startLabel: String(row.E ?? "").trim(),
-          endLabel: String(row.F ?? "").trim(),
-          lengthM
+          section,
+          sourceRow,
+          linkedRoad,
+          sapCode: section.sapCode || linkedRoad?.sapCode || "",
+          tronconNo: section.tronconNo,
+          sectionNo: section.sectionNo,
+          roadLabel: section.roadCode,
+          designation: section.designation,
+          startLabel: section.startLabel,
+          endLabel: section.endLabel,
+          lengthM: section.lengthM
         };
       })
       .filter((item) => item.roadLabel || item.designation || item.sapCode);
-  }, [activeSheetName, rows]);
+  }, [activeSheetName, allRoadSections, allRoads, rows, search]);
   const feuil2SapOptions = useMemo(
-    () => [...new Set(feuil2Sections.map((item) => item.sapCode).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
-    [feuil2Sections]
+    () =>
+      uniqueValues([...centralSapCodes, ...feuil2Sections.map((item) => item.sapCode)])
+        .filter(Boolean)
+        .sort(compareSapCodes),
+    [centralSapCodes, feuil2Sections]
   );
   const feuil2Groups = useMemo(() => {
     const source = feuil2Sections.filter((item) => !feuil2SapFilter || item.sapCode === feuil2SapFilter);
@@ -1068,10 +1171,14 @@ export default function App() {
     }
 
     return [...grouped.values()]
-      .sort((a, b) => a.sapCode.localeCompare(b.sapCode))
+      .sort((a, b) => compareSapCodes(a.sapCode, b.sapCode))
       .map((group) => ({
         ...group,
-        rows: group.rows.sort((left, right) => getDisplayRowNumber(left.row) - getDisplayRowNumber(right.row))
+        rows: group.rows.sort(
+          (left, right) =>
+            getRoadSectionDisplayOrder(left.section, left.sourceRow) -
+            getRoadSectionDisplayOrder(right.section, right.sourceRow)
+        )
       }));
   }, [feuil2SapFilter, feuil2Sections]);
   const feuil6DirectoryRows = useMemo(() => {
@@ -1079,50 +1186,50 @@ export default function App() {
       return [];
     }
 
-    const items: Array<{
-      row: SheetRow;
-      sapCode: string;
-      roadType: string;
-      roadCode: string;
-      linearM: number | null;
-      proposedName: string;
-      itinerary: string;
-      justification: string;
-      linkedRoad: RoadCatalogItem | null;
-    }> = [];
-
-    let currentSap = "";
-    for (const row of rows) {
-      const sapMarker =
-        parseFeuil6SapMarker(row.A) || parseFeuil6SapMarker(row.F) || parseFeuil6SapMarker(row.E) || currentSap;
-      if (sapMarker && sapMarker !== currentSap) {
-        currentSap = sapMarker;
-      }
-
-      const roadCode = String(row.C ?? "").trim();
-      const proposedName = String(row.E ?? "").trim();
-      if (!roadCode && !proposedName) {
-        continue;
-      }
-
-      items.push({
-        row,
-        sapCode: currentSap || "",
-        roadType: String(row.B ?? "").trim(),
-        roadCode,
-        linearM: parseNumberValue(row.D),
-        proposedName,
-        itinerary: String(row.F ?? "").trim(),
-        justification: String(row.G ?? "").trim(),
-        linkedRoad: resolveRoadFromFeuil6Row(row, allRoads)
+    const normalizedSearch = search.trim().toLowerCase();
+    return allRoads
+      .filter((road) => {
+        if (!normalizedSearch) {
+          return true;
+        }
+        return [
+          road.sapCode,
+          road.roadCode,
+          road.designation,
+          road.itinerary,
+          road.startLabel,
+          road.endLabel,
+          road.justification
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(normalizedSearch);
+      })
+      .map((road) => {
+        const sourceRow =
+          rows.find((row) => {
+            const matchedRoad = resolveRoadFromFeuil6Row(row, [road]);
+            return matchedRoad?.id === road.id;
+          }) ?? null;
+        return {
+          sourceRow,
+          sapCode: road.sapCode,
+          roadType: inferRoadTypeFromCode(road.roadCode),
+          roadCode: road.roadCode,
+          linearM: road.lengthM,
+          proposedName: road.designation,
+          itinerary: road.itinerary || (road.startLabel && road.endLabel ? `${road.startLabel} à ${road.endLabel}` : ""),
+          justification: road.justification,
+          linkedRoad: road
+        };
       });
-    }
-
-    return items;
-  }, [activeSheetName, allRoads, rows]);
+  }, [activeSheetName, allRoads, rows, search]);
   const feuil6SapOptions = useMemo(
-    () => [...new Set(feuil6DirectoryRows.map((item) => item.sapCode).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
-    [feuil6DirectoryRows]
+    () =>
+      uniqueValues([...centralSapCodes, ...feuil6DirectoryRows.map((item) => item.sapCode)])
+        .filter(Boolean)
+        .sort(compareSapCodes),
+    [centralSapCodes, feuil6DirectoryRows]
   );
   const feuil6Groups = useMemo(() => {
     const source = feuil6DirectoryRows.filter((item) => !feuil6SapFilter || item.sapCode === feuil6SapFilter);
@@ -1145,10 +1252,10 @@ export default function App() {
       group.totalLinearM += item.linearM ?? 0;
     }
 
-    return [...grouped.values()].sort((a, b) => a.sapCode.localeCompare(b.sapCode));
+    return [...grouped.values()].sort((a, b) => compareSapCodes(a.sapCode, b.sapCode));
   }, [feuil6DirectoryRows, feuil6SapFilter]);
   const feuil6LinkedCount = useMemo(
-    () => feuil6DirectoryRows.filter((item) => item.linkedRoad).length,
+    () => feuil6DirectoryRows.filter((item) => item.sourceRow).length,
     [feuil6DirectoryRows]
   );
   const feuil3Profiles = useMemo(() => {
@@ -1156,32 +1263,62 @@ export default function App() {
       return [];
     }
 
-    return rows
-      .map((row) => {
-        const linkedRoad = resolveRoadFromFeuil3Row(row, allRoads);
+    const normalizedSearch = search.trim().toLowerCase();
+    return allRoadSections
+      .filter((section) => {
+        if (!normalizedSearch) {
+          return true;
+        }
+        return [
+          section.sapCode,
+          section.roadCode,
+          section.designation,
+          section.startLabel,
+          section.endLabel,
+          section.surfaceType,
+          section.pavementState,
+          section.drainageType,
+          section.drainageState,
+          section.interventionHint
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(normalizedSearch);
+      })
+      .map((section) => {
+        const linkedRoad =
+          (section.roadId ? allRoads.find((road) => road.id === section.roadId) : null) ||
+          allRoads.find((road) => road.roadKey === section.roadKey) ||
+          null;
+        const sourceRowNo = getRoadSectionSourceRowNo(section, "Feuil3");
+        const sourceRow = sourceRowNo ? rows.find((row) => row.rowNo === sourceRowNo) ?? null : null;
         return {
-          row,
+          section,
+          sourceRow,
           linkedRoad,
-          sapCode: linkedRoad?.sapCode || "",
-          roadLabel: String(row.A ?? "").trim(),
-          designation: String(row.B ?? "").trim(),
-          startLabel: String(row.C ?? "").trim(),
-          endLabel: String(row.D ?? "").trim(),
-          lengthM: parseNumberValue(row.E),
-          facadeWidthM: parseNumberValue(row.F),
-          surfaceType: String(row.G ?? "").trim(),
-          pavementState: String(row.H ?? "").trim(),
-          drainageType: String(row.I ?? "").trim(),
-          drainageState: String(row.J ?? "").trim(),
-          sidewalkMinM: parseNumberValue(row.K),
-          interventionHint: String(row.L ?? "").trim()
+          sapCode: section.sapCode || linkedRoad?.sapCode || "",
+          roadLabel: section.roadCode || linkedRoad?.roadCode || "",
+          designation: section.designation || linkedRoad?.designation || "",
+          startLabel: section.startLabel || linkedRoad?.startLabel || "",
+          endLabel: section.endLabel || linkedRoad?.endLabel || "",
+          lengthM: section.lengthM ?? linkedRoad?.lengthM ?? null,
+          facadeWidthM: section.widthM ?? linkedRoad?.widthM ?? null,
+          surfaceType: section.surfaceType || linkedRoad?.surfaceType || "",
+          pavementState: section.pavementState || linkedRoad?.pavementState || "",
+          drainageType: section.drainageType || linkedRoad?.drainageType || "",
+          drainageState: section.drainageState || linkedRoad?.drainageState || "",
+          sidewalkMinM: section.sidewalkMinM ?? linkedRoad?.sidewalkMinM ?? null,
+          interventionHint: section.interventionHint || linkedRoad?.interventionHint || ""
         };
       })
       .filter((item) => item.roadLabel || item.designation || item.surfaceType || item.interventionHint);
-  }, [activeSheetName, allRoads, rows]);
+  }, [activeSheetName, allRoadSections, allRoads, rows, search]);
   const feuil3SapOptions = useMemo(
-    () => [...new Set(feuil3Profiles.map((item) => item.sapCode).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
-    [feuil3Profiles]
+    () =>
+      uniqueValues([...centralSapCodes, ...feuil3Profiles.map((item) => item.sapCode)])
+        .filter(Boolean)
+        .sort(compareSapCodes),
+    [centralSapCodes, feuil3Profiles]
   );
   const feuil3Groups = useMemo(() => {
     const source = feuil3Profiles.filter((item) => !feuil3SapFilter || item.sapCode === feuil3SapFilter);
@@ -1201,7 +1338,16 @@ export default function App() {
       grouped.get(key)!.rows.push(item);
     }
 
-    return [...grouped.values()].sort((a, b) => a.sapCode.localeCompare(b.sapCode));
+    return [...grouped.values()]
+      .sort((a, b) => compareSapCodes(a.sapCode, b.sapCode))
+      .map((group) => ({
+        ...group,
+        rows: group.rows.sort(
+          (left, right) =>
+            getRoadSectionDisplayOrder(left.section, left.sourceRow) -
+            getRoadSectionDisplayOrder(right.section, right.sourceRow)
+        )
+      }));
   }, [feuil3Profiles, feuil3SapFilter]);
   const feuil3PendingInterventions = useMemo(
     () => feuil3Profiles.filter((item) => isToDetermineIntervention(item.interventionHint)).length,
@@ -1220,36 +1366,67 @@ export default function App() {
       return [];
     }
 
-    return rows
-      .map((row) => {
-        const linkedRoad = resolveRoadFromFeuil2Row(row, allRoads);
+    const normalizedSearch = search.trim().toLowerCase();
+    return allRoadSections
+      .filter((section) => {
+        if (!normalizedSearch) {
+          return true;
+        }
+        return [
+          section.sapCode,
+          section.tronconNo,
+          section.sectionNo,
+          section.roadCode,
+          section.designation,
+          section.startLabel,
+          section.endLabel,
+          section.surfaceType,
+          section.pavementState,
+          section.drainageType,
+          section.drainageState
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(normalizedSearch);
+      })
+      .map((section) => {
+        const linkedRoad =
+          (section.roadId ? allRoads.find((road) => road.id === section.roadId) : null) ||
+          allRoads.find((road) => road.roadKey === section.roadKey) ||
+          null;
+        const sourceRowNo = getRoadSectionSourceRowNo(section, "Feuil5");
+        const sourceRow = sourceRowNo ? rows.find((row) => row.rowNo === sourceRowNo) ?? null : null;
         return {
-          row,
+          section,
+          sourceRow,
           linkedRoad,
-          sapCode: linkedRoad?.sapCode || parseFeuil2SapCode(row) || "",
-          tronconNo: String(row.A ?? "").trim(),
-          sectionNo: String(row.B ?? "").trim(),
-          roadLabel: String(row.C ?? "").trim(),
-          designation: String(row.D ?? "").trim(),
-          startLabel: String(row.E ?? "").trim(),
-          endLabel: String(row.F ?? "").trim(),
-          lengthM: parseNumberValue(row.G),
-          facadeWidthM: parseNumberValue(row.H),
-          surfaceType: String(row.I ?? "").trim(),
-          pavementState: String(row.J ?? "").trim(),
-          drainageType: String(row.K ?? "").trim(),
-          drainageState: String(row.L ?? "").trim(),
-          sidewalkMinM: parseNumberValue(row.M),
-          parkingLeft: String(row.N ?? "").trim(),
-          parkingRight: String(row.O ?? "").trim(),
-          parkingOther: String(row.P ?? "").trim()
+          sapCode: section.sapCode || linkedRoad?.sapCode || "",
+          tronconNo: section.tronconNo,
+          sectionNo: section.sectionNo,
+          roadLabel: section.roadCode || linkedRoad?.roadCode || "",
+          designation: section.designation || linkedRoad?.designation || "",
+          startLabel: section.startLabel || linkedRoad?.startLabel || "",
+          endLabel: section.endLabel || linkedRoad?.endLabel || "",
+          lengthM: section.lengthM ?? linkedRoad?.lengthM ?? null,
+          facadeWidthM: section.widthM ?? linkedRoad?.widthM ?? null,
+          surfaceType: section.surfaceType || linkedRoad?.surfaceType || "",
+          pavementState: section.pavementState || linkedRoad?.pavementState || "",
+          drainageType: section.drainageType || linkedRoad?.drainageType || "",
+          drainageState: section.drainageState || linkedRoad?.drainageState || "",
+          sidewalkMinM: section.sidewalkMinM ?? linkedRoad?.sidewalkMinM ?? null,
+          parkingLeft: linkedRoad?.parkingLeft || "",
+          parkingRight: linkedRoad?.parkingRight || "",
+          parkingOther: linkedRoad?.parkingOther || ""
         };
       })
       .filter((item) => item.roadLabel || item.designation || item.surfaceType || item.drainageState);
-  }, [activeSheetName, allRoads, rows]);
+  }, [activeSheetName, allRoadSections, allRoads, rows, search]);
   const feuil5SapOptions = useMemo(
-    () => [...new Set(feuil5Profiles.map((item) => item.sapCode).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
-    [feuil5Profiles]
+    () =>
+      uniqueValues([...centralSapCodes, ...feuil5Profiles.map((item) => item.sapCode)])
+        .filter(Boolean)
+        .sort(compareSapCodes),
+    [centralSapCodes, feuil5Profiles]
   );
   const feuil5Groups = useMemo(() => {
     const source = feuil5Profiles.filter((item) => !feuil5SapFilter || item.sapCode === feuil5SapFilter);
@@ -1269,7 +1446,16 @@ export default function App() {
       grouped.get(key)!.rows.push(item);
     }
 
-    return [...grouped.values()].sort((a, b) => a.sapCode.localeCompare(b.sapCode));
+    return [...grouped.values()]
+      .sort((a, b) => compareSapCodes(a.sapCode, b.sapCode))
+      .map((group) => ({
+        ...group,
+        rows: group.rows.sort(
+          (left, right) =>
+            getRoadSectionDisplayOrder(left.section, left.sourceRow) -
+            getRoadSectionDisplayOrder(right.section, right.sourceRow)
+        )
+      }));
   }, [feuil5Profiles, feuil5SapFilter]);
   const feuil5ParkingCount = useMemo(
     () =>
@@ -1325,6 +1511,11 @@ export default function App() {
   const loadAllRoads = useCallback(async () => {
     const roadList = await padApi.listRoads();
     setAllRoads(roadList);
+  }, []);
+
+  const loadAllRoadSections = useCallback(async () => {
+    const sectionList = await padApi.listRoadSections();
+    setAllRoadSections(sectionList);
   }, []);
 
   const loadMeasurementCampaigns = useCallback(async () => {
@@ -1510,29 +1701,15 @@ export default function App() {
     [allRoads, buildDraftRow]
   );
 
-  const inferRoadType = useCallback((roadCode: string) => {
-    const normalized = normalizeRoadCompareKey(roadCode);
-    if (normalized.startsWith("BVD") || normalized.startsWith("BOULEVARD")) {
-      return "Boulevard";
-    }
-    if (normalized.startsWith("AV") || normalized.startsWith("AVENUE")) {
-      return "Avenue";
-    }
-    if (normalized.startsWith("RUE")) {
-      return "Rue";
-    }
-    return "";
-  }, []);
-
   const suggestSectionForSap = useCallback(
     (sapCode: string) => {
       const sapNumber = String(sapCode ?? "").match(/([0-9]+)/)?.[1] || "";
       if (!sapNumber) {
         return { tronconNo: "", sectionNo: "" };
       }
-      const prefix = `${sapNumber}_`;
-      const currentIndexes = rows
-        .map((row) => String(row.B ?? "").trim())
+    const prefix = `${sapNumber}_`;
+      const currentIndexes = allRoadSections
+        .map((section) => String(section.sectionNo ?? "").trim())
         .filter((value) => value.startsWith(prefix))
         .map((value) => Number(value.split("_")[1] || 0))
         .filter((value) => Number.isFinite(value) && value > 0);
@@ -1542,7 +1719,7 @@ export default function App() {
         sectionNo: `${sapNumber}_${nextIndex}`
       };
     },
-    [rows]
+    [allRoadSections]
   );
 
   const autofillDraftFromRoad = useCallback(
@@ -1628,7 +1805,7 @@ export default function App() {
       }
 
       if (sheetName === "Feuil6") {
-        next.B = inferRoadType(road.roadCode) || next.B || "";
+        next.B = inferRoadTypeFromCode(road.roadCode) || next.B || "";
         next.C = road.roadCode;
         next.D = road.lengthM !== null && road.lengthM !== undefined ? String(road.lengthM) : next.D || "";
         next.E = road.designation;
@@ -1638,7 +1815,7 @@ export default function App() {
 
       return next;
     },
-    [allRoads, editingRowId, inferRoadType, rows, suggestSectionForSap]
+    [allRoads, editingRowId, rows, suggestSectionForSap]
   );
 
   const validateDraftDuplicates = useCallback(
@@ -1648,6 +1825,8 @@ export default function App() {
     ): { fieldErrors: Partial<Record<SheetColumnKey, string>>; formError: string } => {
       const fieldErrors: Partial<Record<SheetColumnKey, string>> = {};
       const comparableRows = rows.filter((row) => !editingRowId || row.id !== editingRowId);
+      const currentEditingRow = editingRowId ? rows.find((row) => row.id === editingRowId) ?? null : null;
+      const currentEditingRowNo = currentEditingRow?.rowNo ?? 0;
       const draftRoad =
         sheetName === "Feuil2" || sheetName === "Feuil5" || sheetName === "Feuil3" || sheetName === "Feuil6"
           ? resolveDraftRoadMatch(sheetName, cells)
@@ -1657,44 +1836,57 @@ export default function App() {
         const sectionNo = normalizeLabel(cells.B);
         const startKey = normalizeLabel(cells.E);
         const endKey = normalizeLabel(cells.F);
-        const duplicate = comparableRows.find((row) => {
-          const rowRoad = resolveRoadFromFeuil2Row(row, allRoads);
-          const sameRoad = draftRoad ? rowRoad?.id === draftRoad.id : normalizeRoadCompareKey(row.C) === normalizeRoadCompareKey(cells.C);
+        const duplicateSection = allRoadSections.find((section) => {
+          const sheetRowNo = getRoadSectionSourceRowNo(section, sheetName);
+          if (!sheetRowNo || (currentEditingRowNo && sheetRowNo === currentEditingRowNo)) {
+            return false;
+          }
+          const sameRoad = draftRoad
+            ? (section.roadId ? section.roadId === draftRoad.id : normalizeLabel(section.roadKey) === normalizeLabel(draftRoad.roadKey))
+            : normalizeRoadCompareKey(section.roadCode) === normalizeRoadCompareKey(cells.C);
           if (!sameRoad) {
             return false;
           }
-          if (sectionNo && normalizeLabel(row.B) === sectionNo) {
+          if (sectionNo && normalizeLabel(section.sectionNo) === sectionNo) {
             return true;
           }
-          return Boolean(startKey && endKey && normalizeLabel(row.E) === startKey && normalizeLabel(row.F) === endKey);
+          return Boolean(startKey && endKey && normalizeLabel(section.startLabel) === startKey && normalizeLabel(section.endLabel) === endKey);
         });
 
-        if (duplicate) {
-          fieldErrors.B = `Cette section existe déjà pour cette voie (${toDisplay(duplicate.B)}).`;
+        if (duplicateSection) {
+          fieldErrors.B = `Cette section existe déjà pour cette voie (${toDisplay(duplicateSection.sectionNo)}).`;
           return { fieldErrors, formError: fieldErrors.B };
         }
       }
 
       if (sheetName === "Feuil3") {
-        const duplicate = comparableRows.find((row) => {
-          const rowRoad = resolveRoadFromFeuil3Row(row, allRoads);
-          if (draftRoad) {
-            return rowRoad?.id === draftRoad.id;
+        const duplicateSection = allRoadSections.find((section) => {
+          const sheetRowNo = getRoadSectionSourceRowNo(section, "Feuil3");
+          if (!sheetRowNo || (currentEditingRowNo && sheetRowNo === currentEditingRowNo)) {
+            return false;
           }
-          return normalizeRoadCompareKey(row.A) === normalizeRoadCompareKey(cells.A) || normalizeRoadCompareKey(row.B) === normalizeRoadCompareKey(cells.B);
+          if (draftRoad) {
+            return section.roadId ? section.roadId === draftRoad.id : normalizeLabel(section.roadKey) === normalizeLabel(draftRoad.roadKey);
+          }
+          return (
+            normalizeRoadCompareKey(section.roadCode) === normalizeRoadCompareKey(cells.A) ||
+            normalizeRoadCompareKey(section.designation) === normalizeRoadCompareKey(cells.B)
+          );
         });
 
-        if (duplicate) {
-          fieldErrors.A = `Cette voie possède déjà un profil dans cette feuille (${toDisplay(duplicate.A)}).`;
+        if (duplicateSection) {
+          fieldErrors.A = `Cette voie possède déjà un profil dans cette feuille (${toDisplay(duplicateSection.roadCode)}).`;
           return { fieldErrors, formError: fieldErrors.A };
         }
       }
 
       if (sheetName === "Feuil6") {
         const codeKey = normalizeRoadCompareKey(cells.C);
-        const duplicate = comparableRows.find((row) => codeKey && normalizeRoadCompareKey(row.C) === codeKey);
-        if (duplicate) {
-          fieldErrors.C = `Ce code de voie existe déjà dans le répertoire (${toDisplay(duplicate.C)}).`;
+        const duplicateRoad = allRoads.find(
+          (road) => codeKey && normalizeRoadCompareKey(road.roadCode) === codeKey && (!draftRoad || road.id !== draftRoad.id)
+        );
+        if (duplicateRoad) {
+          fieldErrors.C = `Ce code de voie existe déjà dans le répertoire (${toDisplay(duplicateRoad.roadCode)}).`;
           return { fieldErrors, formError: fieldErrors.C };
         }
       }
@@ -1728,7 +1920,7 @@ export default function App() {
 
       return { fieldErrors, formError: "" };
     },
-    [allRoads, editingRowId, resolveDraftRoadMatch, rows]
+    [allRoadSections, allRoads, editingRowId, resolveDraftRoadMatch, rows]
   );
 
   const handleDraftCellChange = useCallback(
@@ -1951,6 +2143,7 @@ export default function App() {
           loadDashboardSummary(),
           refreshDecisionCatalogs(),
           loadAllRoads(),
+          loadAllRoadSections(),
           loadRoads(),
           loadMeasurementCampaigns(),
           loadHistory(),
@@ -1986,6 +2179,7 @@ export default function App() {
     hasElectronBridge,
     loadDashboardSummary,
     loadAllRoads,
+    loadAllRoadSections,
     loadDrainageRules,
     loadFeuil4Snapshot,
     loadHistory,
@@ -2174,6 +2368,7 @@ export default function App() {
         loadDashboardSummary(),
         refreshDecisionCatalogs(),
         loadAllRoads(),
+        loadAllRoadSections(),
         loadRoads(),
         loadMeasurementCampaigns(),
         loadHistory(),
@@ -2251,6 +2446,7 @@ export default function App() {
           loadDashboardSummary(),
           refreshDecisionCatalogs(),
           loadAllRoads(),
+          loadAllRoadSections(),
           loadRoads(),
           loadMeasurementCampaigns(),
           loadHistory(),
@@ -2378,6 +2574,7 @@ export default function App() {
         loadDashboardSummary(),
         refreshDecisionCatalogs(),
         loadAllRoads(),
+        loadAllRoadSections(),
         loadRoads(),
         loadMeasurementCampaigns(),
         loadHistory(),
@@ -2696,72 +2893,156 @@ export default function App() {
     }
   }
 
-  function handleUseFeuil2Section(row: SheetRow) {
-    const matchedRoad = resolveRoadFromFeuil2Row(row, allRoads);
-    if (!matchedRoad) {
-      setError("Aucune voie normalisée correspondante n'a été trouvée pour cette section.");
+  function handleUseCentralRoad(
+    road: RoadCatalogItem | null,
+    missingMessage: string,
+    successMessage: string,
+    nextSapCode?: string
+  ) {
+    if (!road) {
+      setError(missingMessage);
       return;
     }
 
-    setSelectedRoadId(matchedRoad.id);
-    if (matchedRoad.sapCode) {
-      setSelectedSap(matchedRoad.sapCode);
+    setSelectedRoadId(road.id);
+    if (nextSapCode || road.sapCode) {
+      setSelectedSap(nextSapCode || road.sapCode);
     }
     setDecisionResult(null);
     setActiveView("decision");
-    setNotice(`Section ${toDisplay(row.C)} chargée dans l'aide à la décision.`);
+    setNotice(successMessage);
     setError("");
+  }
+
+  function handleEditSourceRow(row: SheetRow | null, missingMessage: string) {
+    if (!row) {
+      setError(missingMessage);
+      return;
+    }
+    handleEdit(row);
+  }
+
+  function handleDeleteSourceRow(row: SheetRow | null, missingMessage: string) {
+    if (!row) {
+      setError(missingMessage);
+      return;
+    }
+    void handleDeleteRow(row.id);
+  }
+
+  async function handleCreateSourceRowAndEdit(
+    sheetName: "Feuil3" | "Feuil5",
+    payload: SheetRowPayload,
+    successMessage: string
+  ) {
+    setIsBusy(true);
+    try {
+      const createdRow = await padApi.createSheetRow(sheetName, payload);
+      await Promise.all([
+        refreshStatus(),
+        loadRows(),
+        loadDashboardSummary(),
+        loadIntegrityReport(),
+        refreshDecisionCatalogs(),
+        loadAllRoads(),
+        loadAllRoadSections(),
+        loadRoads(),
+        loadMeasurementCampaigns()
+      ]);
+      handleEdit(createdRow);
+      setNotice(successMessage);
+      setError("");
+    } catch (err) {
+      setError(toErrorMessage(err));
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  function handleUseFeuil2Section(row: SheetRow) {
+    const matchedRoad = resolveRoadFromFeuil2Row(row, allRoads);
+    handleUseCentralRoad(
+      matchedRoad,
+      "Aucune voie normalisée correspondante n'a été trouvée pour cette section.",
+      `Section ${toDisplay(row.C)} chargée dans l'aide à la décision.`
+    );
   }
 
   function handleUseFeuil6Road(row: SheetRow) {
     const matchedRoad = resolveRoadFromFeuil6Row(row, allRoads);
-    if (!matchedRoad) {
-      setError("Aucune voie normalisée correspondante n'a été trouvée pour cette entrée du répertoire.");
-      return;
-    }
-
-    setSelectedRoadId(matchedRoad.id);
-    if (matchedRoad.sapCode) {
-      setSelectedSap(matchedRoad.sapCode);
-    }
-    setDecisionResult(null);
-    setActiveView("decision");
-    setNotice(`Voie ${matchedRoad.roadCode} chargée depuis le répertoire codifié.`);
-    setError("");
+    handleUseCentralRoad(
+      matchedRoad,
+      "Aucune voie normalisée correspondante n'a été trouvée pour cette entrée du répertoire.",
+      `Voie ${matchedRoad?.roadCode || ""} chargée depuis le répertoire codifié.`
+    );
   }
 
-  function handleUseFeuil3Profile(row: SheetRow) {
-    const matchedRoad = resolveRoadFromFeuil3Row(row, allRoads);
-    if (!matchedRoad) {
-      setError("Aucune voie normalisée correspondante n'a été trouvée pour ce profil technique.");
-      return;
-    }
-
-    setSelectedRoadId(matchedRoad.id);
-    if (matchedRoad.sapCode) {
-      setSelectedSap(matchedRoad.sapCode);
-    }
-    setDecisionResult(null);
-    setActiveView("decision");
-    setNotice(`Profil technique ${matchedRoad.roadCode} chargé dans l'aide à la décision.`);
-    setError("");
+  function buildFeuil3SourcePayload(item: {
+    roadLabel: string;
+    designation: string;
+    startLabel: string;
+    endLabel: string;
+    lengthM: number | null;
+    facadeWidthM: number | null;
+    surfaceType: string;
+    pavementState: string;
+    drainageType: string;
+    drainageState: string;
+    sidewalkMinM: number | null;
+    interventionHint: string;
+  }): SheetRowPayload {
+    return {
+      A: toSheetCellValue(item.roadLabel),
+      B: toSheetCellValue(item.designation),
+      C: toSheetCellValue(item.startLabel),
+      D: toSheetCellValue(item.endLabel),
+      E: toSheetCellValue(item.lengthM),
+      F: toSheetCellValue(item.facadeWidthM),
+      G: toSheetCellValue(item.surfaceType),
+      H: toSheetCellValue(item.pavementState),
+      I: toSheetCellValue(item.drainageType),
+      J: toSheetCellValue(item.drainageState),
+      K: toSheetCellValue(item.sidewalkMinM),
+      L: toSheetCellValue(item.interventionHint || "à déterminer (A D)")
+    };
   }
 
-  function handleUseFeuil5Profile(row: SheetRow) {
-    const matchedRoad = resolveRoadFromFeuil2Row(row, allRoads);
-    if (!matchedRoad) {
-      setError("Aucune voie normalisée correspondante n'a été trouvée pour ce profil complémentaire.");
-      return;
-    }
-
-    setSelectedRoadId(matchedRoad.id);
-    if (matchedRoad.sapCode) {
-      setSelectedSap(matchedRoad.sapCode);
-    }
-    setDecisionResult(null);
-    setActiveView("decision");
-    setNotice(`Profil complémentaire ${matchedRoad.roadCode} chargé dans l'aide à la décision.`);
-    setError("");
+  function buildFeuil5SourcePayload(item: {
+    tronconNo: string;
+    sectionNo: string;
+    roadLabel: string;
+    designation: string;
+    startLabel: string;
+    endLabel: string;
+    lengthM: number | null;
+    facadeWidthM: number | null;
+    surfaceType: string;
+    pavementState: string;
+    drainageType: string;
+    drainageState: string;
+    sidewalkMinM: number | null;
+    parkingLeft: string;
+    parkingRight: string;
+    parkingOther: string;
+  }): SheetRowPayload {
+    return {
+      A: toSheetCellValue(item.tronconNo),
+      B: toSheetCellValue(item.sectionNo),
+      C: toSheetCellValue(item.roadLabel),
+      D: toSheetCellValue(item.designation),
+      E: toSheetCellValue(item.startLabel),
+      F: toSheetCellValue(item.endLabel),
+      G: toSheetCellValue(item.lengthM),
+      H: toSheetCellValue(item.facadeWidthM),
+      I: toSheetCellValue(item.surfaceType),
+      J: toSheetCellValue(item.pavementState),
+      K: toSheetCellValue(item.drainageType),
+      L: toSheetCellValue(item.drainageState),
+      M: toSheetCellValue(item.sidewalkMinM),
+      N: toSheetCellValue(item.parkingLeft),
+      O: toSheetCellValue(item.parkingRight),
+      P: toSheetCellValue(item.parkingOther)
+    };
   }
 
   function handleEdit(row: SheetRow) {
@@ -2849,6 +3130,7 @@ export default function App() {
         loadIntegrityReport(),
         refreshDecisionCatalogs(),
         loadAllRoads(),
+        loadAllRoadSections(),
         loadRoads(),
         loadMeasurementCampaigns()
       ]);
@@ -2892,6 +3174,7 @@ export default function App() {
         loadIntegrityReport(),
         refreshDecisionCatalogs(),
         loadAllRoads(),
+        loadAllRoadSections(),
         loadRoads(),
         loadMeasurementCampaigns()
       ]);
@@ -5749,13 +6032,21 @@ export default function App() {
                     </thead>
                     <tbody>
                       {group.rows.map((item, index) => (
-                        <tr key={item.row.id}>
+                        <tr key={item.section.id}>
                           <td className="col-actions">
                             <div className="row-buttons row-buttons--compact row-buttons--wrap">
                               <button
                                 className="row-action row-action--evaluate row-action--with-icon row-action--compact"
                                 type="button"
-                                onClick={() => handleUseFeuil2Section(item.row)}
+                                onClick={() =>
+                                  handleUseCentralRoad(
+                                    item.linkedRoad,
+                                    "Aucune voie centralisée correspondante n'a été trouvée pour cette section.",
+                                    `Section ${toDisplay(item.roadLabel)} chargée dans l'aide à la décision.`,
+                                    item.sapCode
+                                  )
+                                }
+                                disabled={!item.linkedRoad}
                               >
                                 <Gauge size={14} aria-hidden="true" />
                                 <span>Évaluer</span>
@@ -5763,18 +6054,30 @@ export default function App() {
                               <button
                                 className="row-action row-action--icon row-action--icon-sm"
                                 type="button"
-                                onClick={() => handleEdit(item.row)}
+                                onClick={() =>
+                                  handleEditSourceRow(
+                                    item.sourceRow,
+                                    "Cette section centralisée n'a pas de ligne source Feuil2 modifiable."
+                                  )
+                                }
                                 title="Éditer"
                                 aria-label="Éditer"
+                                disabled={!item.sourceRow}
                               >
                                 <Pencil size={15} aria-hidden="true" />
                               </button>
                               <button
                                 className="row-action row-action--danger row-action--icon row-action--icon-sm"
                                 type="button"
-                                onClick={() => handleDeleteRow(item.row.id)}
+                                onClick={() =>
+                                  handleDeleteSourceRow(
+                                    item.sourceRow,
+                                    "Cette section centralisée n'a pas de ligne source Feuil2 à supprimer."
+                                  )
+                                }
                                 title="Supprimer"
                                 aria-label="Supprimer"
+                                disabled={!item.sourceRow}
                               >
                                 <Trash2 size={15} aria-hidden="true" />
                               </button>
@@ -5883,14 +6186,20 @@ export default function App() {
                       </thead>
                       <tbody>
                         {group.rows.map((item, index) => (
-                          <tr key={item.row.id}>
+                          <tr key={item.linkedRoad.id}>
                             <td className="col-actions">
                               <div className="row-buttons row-buttons--compact row-buttons--wrap">
                                 <button
                                   className="row-action row-action--evaluate row-action--with-icon row-action--compact"
                                   type="button"
-                                  onClick={() => handleUseFeuil6Road(item.row)}
-                                  disabled={!item.linkedRoad}
+                                  onClick={() =>
+                                    handleUseCentralRoad(
+                                      item.linkedRoad,
+                                      "Aucune voie centralisée correspondante n'a été trouvée pour cette entrée du répertoire.",
+                                      `Voie ${item.roadCode} chargée depuis le répertoire codifié.`,
+                                      item.sapCode
+                                    )
+                                  }
                                 >
                                   <Gauge size={14} aria-hidden="true" />
                                   <span>Évaluer</span>
@@ -5898,18 +6207,30 @@ export default function App() {
                                 <button
                                   className="row-action row-action--icon row-action--icon-sm"
                                   type="button"
-                                  onClick={() => handleEdit(item.row)}
+                                  onClick={() =>
+                                    handleEditSourceRow(
+                                      item.sourceRow,
+                                      "Cette voie centrale n'a pas encore de ligne source Feuil6 modifiable."
+                                    )
+                                  }
                                   title="Éditer"
                                   aria-label="Éditer"
+                                  disabled={!item.sourceRow}
                                 >
                                   <Pencil size={15} aria-hidden="true" />
                                 </button>
                                 <button
                                   className="row-action row-action--danger row-action--icon row-action--icon-sm"
                                   type="button"
-                                  onClick={() => handleDeleteRow(item.row.id)}
+                                  onClick={() =>
+                                    handleDeleteSourceRow(
+                                      item.sourceRow,
+                                      "Cette voie centrale n'a pas encore de ligne source Feuil6 à supprimer."
+                                    )
+                                  }
                                   title="Supprimer"
                                   aria-label="Supprimer"
+                                  disabled={!item.sourceRow}
                                 >
                                   <Trash2 size={15} aria-hidden="true" />
                               </button>
@@ -5923,8 +6244,8 @@ export default function App() {
                             <td>{toDisplay(item.itinerary)}</td>
                             <td>{toDisplay(item.justification)}</td>
                             <td>
-                              <span className={`status-pill ${item.linkedRoad ? "status-pill--ok" : "status-pill--warning"}`}>
-                                {item.linkedRoad ? "Liée" : "À vérifier"}
+                              <span className={`status-pill ${item.sourceRow ? "status-pill--ok" : "status-pill--warning"}`}>
+                                {item.sourceRow ? "Présente" : "À créer"}
                               </span>
                             </td>
                           </tr>
@@ -6079,13 +6400,20 @@ export default function App() {
                     </thead>
                     <tbody>
                       {group.rows.map((item, index) => (
-                        <tr key={item.row.id}>
+                        <tr key={item.section.id}>
                           <td className="col-actions">
                             <div className="row-buttons row-buttons--compact row-buttons--wrap">
                               <button
                                 className="row-action row-action--evaluate row-action--with-icon row-action--compact"
                                 type="button"
-                                onClick={() => handleUseFeuil3Profile(item.row)}
+                                onClick={() =>
+                                  handleUseCentralRoad(
+                                    item.linkedRoad,
+                                    "Aucune voie centralisée correspondante n'a été trouvée pour ce profil technique.",
+                                    `Profil technique ${toDisplay(item.roadLabel)} chargé dans l'aide à la décision.`,
+                                    item.sapCode
+                                  )
+                                }
                                 disabled={!item.linkedRoad}
                               >
                                 <Gauge size={14} aria-hidden="true" />
@@ -6094,18 +6422,35 @@ export default function App() {
                               <button
                                 className="row-action row-action--icon row-action--icon-sm"
                                 type="button"
-                                onClick={() => handleEdit(item.row)}
-                                title="Éditer"
-                                aria-label="Éditer"
+                                onClick={() =>
+                                  item.sourceRow
+                                    ? handleEditSourceRow(
+                                        item.sourceRow,
+                                        "Ce profil centralisé n'a pas de ligne source Feuil3 modifiable."
+                                      )
+                                    : void handleCreateSourceRowAndEdit(
+                                        "Feuil3",
+                                        buildFeuil3SourcePayload(item),
+                                        `Ligne source Feuil3 créée pour ${toDisplay(item.roadLabel)} puis ouverte en édition.`
+                                      )
+                                }
+                                title={item.sourceRow ? "Éditer" : "Créer la ligne source puis éditer"}
+                                aria-label={item.sourceRow ? "Éditer" : "Créer la ligne source puis éditer"}
                               >
                                 <Pencil size={15} aria-hidden="true" />
                               </button>
                               <button
                                 className="row-action row-action--danger row-action--icon row-action--icon-sm"
                                 type="button"
-                                onClick={() => handleDeleteRow(item.row.id)}
+                                onClick={() =>
+                                  handleDeleteSourceRow(
+                                    item.sourceRow,
+                                    "Ce profil centralisé n'a pas de ligne source Feuil3 à supprimer."
+                                  )
+                                }
                                 title="Supprimer"
                                 aria-label="Supprimer"
+                                disabled={!item.sourceRow}
                               >
                                 <Trash2 size={15} aria-hidden="true" />
                               </button>
@@ -6290,13 +6635,20 @@ export default function App() {
                     </thead>
                     <tbody>
                       {group.rows.map((item, index) => (
-                        <tr key={item.row.id}>
+                        <tr key={item.section.id}>
                           <td className="col-actions">
                             <div className="row-buttons row-buttons--compact row-buttons--wrap">
                               <button
                                 className="row-action row-action--evaluate row-action--with-icon row-action--compact"
                                 type="button"
-                                onClick={() => handleUseFeuil5Profile(item.row)}
+                                onClick={() =>
+                                  handleUseCentralRoad(
+                                    item.linkedRoad,
+                                    "Aucune voie centralisée correspondante n'a été trouvée pour ce profil complémentaire.",
+                                    `Profil complémentaire ${toDisplay(item.roadLabel)} chargé dans l'aide à la décision.`,
+                                    item.sapCode
+                                  )
+                                }
                                 disabled={!item.linkedRoad}
                               >
                                 <Gauge size={14} aria-hidden="true" />
@@ -6305,18 +6657,35 @@ export default function App() {
                               <button
                                 className="row-action row-action--icon row-action--icon-sm"
                                 type="button"
-                                onClick={() => handleEdit(item.row)}
-                                title="Éditer"
-                                aria-label="Éditer"
+                                onClick={() =>
+                                  item.sourceRow
+                                    ? handleEditSourceRow(
+                                        item.sourceRow,
+                                        "Ce profil centralisé n'a pas de ligne source Feuil5 modifiable."
+                                      )
+                                    : void handleCreateSourceRowAndEdit(
+                                        "Feuil5",
+                                        buildFeuil5SourcePayload(item),
+                                        `Ligne source Feuil5 créée pour ${toDisplay(item.roadLabel)} puis ouverte en édition.`
+                                      )
+                                }
+                                title={item.sourceRow ? "Éditer" : "Créer la ligne source puis éditer"}
+                                aria-label={item.sourceRow ? "Éditer" : "Créer la ligne source puis éditer"}
                               >
                                 <Pencil size={15} aria-hidden="true" />
                               </button>
                               <button
                                 className="row-action row-action--danger row-action--icon row-action--icon-sm"
                                 type="button"
-                                onClick={() => handleDeleteRow(item.row.id)}
+                                onClick={() =>
+                                  handleDeleteSourceRow(
+                                    item.sourceRow,
+                                    "Ce profil centralisé n'a pas de ligne source Feuil5 à supprimer."
+                                  )
+                                }
                                 title="Supprimer"
                                 aria-label="Supprimer"
+                                disabled={!item.sourceRow}
                               >
                                 <Trash2 size={15} aria-hidden="true" />
                               </button>

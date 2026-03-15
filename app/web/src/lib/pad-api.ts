@@ -17,6 +17,7 @@
   PdfExportResult,
   ReportExportResult,
   RoadCatalogItem,
+  RoadSectionItem,
   RoadMeasurementItem,
   RoadMeasurementPayload,
   SapSector,
@@ -127,6 +128,11 @@ export const padApi = {
   async listRoads(filters?: { sapCode?: string; search?: string }): Promise<RoadCatalogItem[]> {
     const bridge = requireBridge();
     return bridge.roads.list(filters);
+  },
+
+  async listRoadSections(filters?: { sapCode?: string; search?: string }): Promise<RoadSectionItem[]> {
+    const bridge = requireBridge();
+    return bridge.roadSections.list(filters);
   },
 
   async listMeasurementCampaigns(filters?: {

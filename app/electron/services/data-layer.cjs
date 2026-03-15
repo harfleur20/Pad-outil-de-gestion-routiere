@@ -338,6 +338,7 @@ function setupDataLayer({ app }) {
     updateSheetRow: (sheetName, rowId, payload) => updateSheetRow(db, sheetName, rowId, payload),
     deleteSheetRow: (sheetName, rowId) => deleteSheetRow(db, sheetName, rowId),
     listRoadCatalog: (filters) => listRoadCatalog(db, filters),
+    listRoadSections: (filters) => listRoadSections(db, filters),
     listMeasurementCampaigns: (filters) => listMeasurementCampaigns(db, filters),
     listRoadMeasurements: (filters) => listRoadMeasurements(db, filters),
     upsertMeasurementCampaign: (payload) => upsertMeasurementCampaign(db, payload),
@@ -3219,6 +3220,75 @@ function listRoadCatalog(db, filters = {}) {
 
   return rows.map((row) => ({
     ...row,
+    lengthM: toNumber(row.lengthM),
+    widthM: toNumber(row.widthM),
+    sidewalkMinM: toNumber(row.sidewalkMinM)
+  }));
+}
+
+function listRoadSections(db, filters = {}) {
+  const where = [];
+  const params = {};
+
+  const sapCode = toText(filters.sapCode);
+  if (sapCode) {
+    where.push("sap_code = @sapCode");
+    params.sapCode = sapCode;
+  }
+
+  const search = toText(filters.search);
+  if (search) {
+    where.push(
+      `(
+        troncon_no LIKE @search OR
+        section_no LIKE @search OR
+        road_code LIKE @search OR
+        designation LIKE @search OR
+        start_label LIKE @search OR
+        end_label LIKE @search
+      )`
+    );
+    params.search = `%${search}%`;
+  }
+
+  const rows = db
+    .prepare(
+      `
+      SELECT
+        id,
+        section_key AS sectionKey,
+        source_sheet AS sourceSheet,
+        source_row_no AS sourceRowNo,
+        troncon_no AS tronconNo,
+        section_no AS sectionNo,
+        road_key AS roadKey,
+        road_id AS roadId,
+        COALESCE(sap_code, '') AS sapCode,
+        road_code AS roadCode,
+        designation,
+        start_label AS startLabel,
+        end_label AS endLabel,
+        length_m AS lengthM,
+        width_m AS widthM,
+        surface_type AS surfaceType,
+        pavement_state AS pavementState,
+        drainage_type AS drainageType,
+        drainage_state AS drainageState,
+        sidewalk_min_m AS sidewalkMinM,
+        intervention_hint AS interventionHint,
+        source_payload AS sourcePayload
+      FROM road_section
+      ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+      ORDER BY sap_code, troncon_no, section_no, designation
+      LIMIT 5000
+    `
+    )
+    .all(params);
+
+  return rows.map((row) => ({
+    ...row,
+    roadId: Number.isFinite(Number(row.roadId)) ? Number(row.roadId) : null,
+    sourceRowNo: Number(row.sourceRowNo) || 0,
     lengthM: toNumber(row.lengthM),
     widthM: toNumber(row.widthM),
     sidewalkMinM: toNumber(row.sidewalkMinM)
