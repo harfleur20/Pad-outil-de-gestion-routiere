@@ -144,6 +144,9 @@ declare global {
       printing: {
         exportCurrentViewPdf: (suggestedName?: string) => Promise<PdfExportResult | null>;
       };
+      lifecycle: {
+        notifyReady: () => void;
+      };
       ping: () => boolean;
     };
   }

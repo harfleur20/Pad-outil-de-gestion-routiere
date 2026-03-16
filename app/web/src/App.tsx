@@ -976,10 +976,48 @@ function buildFeuil4Snapshot(rows: SheetRow[]): Feuil4Snapshot | null {
   };
 }
 
+function buildFallbackRoadFromHistory(row: DecisionHistoryItem): RoadCatalogItem {
+  return {
+    id: row.roadId ?? 0,
+    roadKey: `${row.roadCode}|${row.roadDesignation}|${row.startLabel}|${row.endLabel}`,
+    roadCode: row.roadCode || "",
+    designation: row.roadDesignation || "",
+    sapCode: row.sapCode || "",
+    startLabel: row.startLabel || "",
+    endLabel: row.endLabel || "",
+    lengthM: null,
+    widthM: null,
+    surfaceType: "",
+    pavementState: "",
+    drainageType: "",
+    drainageState: "",
+    sidewalkMinM: null,
+    parkingLeft: "",
+    parkingRight: "",
+    parkingOther: "",
+    itinerary: [row.startLabel, row.endLabel].filter(Boolean).join(" -> "),
+    justification: "",
+    interventionHint: row.contextualIntervention || ""
+  };
+}
+
+function buildFallbackDegradationFromHistory(row: DecisionHistoryItem): DegradationItem {
+  return {
+    id: 0,
+    code: "",
+    name: row.degradationName || "",
+    causes: row.probableCause ? [row.probableCause] : [],
+    solution: row.maintenanceSolution || "",
+    solutionSource: row.maintenanceSolution ? "OVERRIDE" : "MISSING",
+    templateKey: null
+  };
+}
+
 export default function App() {
   const hasElectronBridge = Boolean(window.padApp);
   const appName = window.padApp?.appName || "PAD Maintenance Routière";
   const appVersion = window.padApp?.appVersion || "0.0.0";
+  const appLogoSrc = `${import.meta.env.BASE_URL}logo-pad.png`;
   const [status, setStatus] = useState<DataStatus | null>(null);
   const [integrityReport, setIntegrityReport] = useState<DataIntegrityReport | null>(null);
   const [dashboardSummary, setDashboardSummary] = useState<DashboardSummary | null>(null);
@@ -1110,6 +1148,7 @@ export default function App() {
   const [isIntegrityAlertDismissed, setIsIntegrityAlertDismissed] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const hasNotifiedAppReadyRef = useRef(false);
   const degradationEditorRef = useRef<HTMLDivElement | null>(null);
   const sheetEditorRef = useRef<HTMLElement | null>(null);
   const measurementCampaignEditorRef = useRef<HTMLDivElement | null>(null);
@@ -1238,14 +1277,24 @@ export default function App() {
       "À confirmer";
 
     const rationale = [
-      `Voie analysée : ${decisionResult.road.roadCode} - ${decisionResult.road.designation} (${decisionResult.road.sapCode || "SAP?"}).`,
-      `Dégradation retenue : ${decisionResult.degradation.name}${hasCause ? `, cause probable ${decisionResult.probableCause}.` : "."}`,
       hasDeflection
-        ? `Déflexion retenue : D = ${decisionResult.deflection.value}, niveau ${toDeflectionSeverityLabel(
+        ? `La valeur de déflexion place la chaussée au niveau ${toDeflectionSeverityLabel(
             decisionResult.deflection.severity
-          )}, orientation ${toDeflectionRecommendationLabel(decisionResult.deflection.recommendation)}.`
-        : "Déflexion non renseignée : la recommandation repose sur les autres règles métier disponibles.",
-      `Assainissement : ${decisionResult.drainage.recommendation}${decisionResult.drainage.needsAttention ? " Une vigilance est requise." : ""}`
+          ).toUpperCase()} et oriente vers ${toDeflectionRecommendationLabel(decisionResult.deflection.recommendation).toLowerCase()}.`
+        : "Aucune valeur de déflexion n'a été fournie : la recommandation est calculée à partir des autres règles disponibles.",
+      hasSolution
+        ? `La dégradation ${decisionResult.degradation.name.toLowerCase()} active la solution de maintenance ${decisionResult.maintenanceSolution.toLowerCase()}.`
+        : `La dégradation ${decisionResult.degradation.name.toLowerCase()} a été reconnue, mais sa solution de maintenance reste à préciser dans le catalogue.`,
+      askDrainage
+        ? `L'assainissement a été interrogé explicitement : ${decisionResult.drainage.recommendation}${
+            decisionResult.drainage.needsAttention ? " Cette règle renforce la vigilance sur la décision finale." : "."
+          }`
+        : "L'assainissement n'a pas été interrogé explicitement dans ce calcul ; la décision doit être lue avec prudence.",
+      hasContextualIntervention
+        ? `Le contexte du tronçon confirme une intervention de type ${String(
+            decisionResult.contextualIntervention || ""
+          ).toLowerCase()}.`
+        : "Le contexte du tronçon n'apporte pas encore d'intervention complémentaire fiable."
     ];
 
     return {
@@ -2449,6 +2498,15 @@ export default function App() {
     if (!maintenanceDate) {
       nextErrors.interventionDate = "Veuillez renseigner la date prévue.";
     }
+    if (!maintenanceStateBefore.trim()) {
+      nextErrors.stateBefore = "Veuillez renseigner l'état avant.";
+    }
+    if (!maintenanceResponsibleName.trim()) {
+      nextErrors.responsibleName = "Veuillez renseigner le responsable PAD.";
+    }
+    if (String(maintenanceCostAmount).trim() === "") {
+      nextErrors.costAmount = "Veuillez renseigner le coût estimé.";
+    }
     if (maintenanceStatus === "TERMINE" && !maintenanceCompletionDate) {
       nextErrors.completionDate = "Veuillez renseigner la date réelle ou de clôture.";
     }
@@ -2474,6 +2532,8 @@ export default function App() {
     maintenanceDeflectionAfter,
     maintenanceDeflectionBefore,
     maintenanceRoadId,
+    maintenanceResponsibleName,
+    maintenanceStateBefore,
     maintenanceStatus,
     maintenanceType
   ]);
@@ -2540,6 +2600,10 @@ export default function App() {
       } finally {
         if (!cancelled) {
           setIsBusy(false);
+          if (!hasNotifiedAppReadyRef.current && typeof window.padApp?.lifecycle?.notifyReady === "function") {
+            hasNotifiedAppReadyRef.current = true;
+            window.padApp.lifecycle.notifyReady();
+          }
         }
       }
     }
@@ -2903,6 +2967,49 @@ export default function App() {
     scrollPageTop();
   }
 
+  function handleReviewHistoryDecision(row: DecisionHistoryItem) {
+    const matchedRoad =
+      (row.roadId ? allRoads.find((road) => road.id === row.roadId) : null) ||
+      allRoads.find(
+        (road) =>
+          normalizeLabel(road.roadCode) === normalizeLabel(row.roadCode) &&
+          normalizeLabel(road.designation) === normalizeLabel(row.roadDesignation)
+      ) ||
+      null;
+    const matchedDegradation =
+      degradations.find((item) => normalizeLabel(item.name) === normalizeLabel(row.degradationName)) || null;
+
+    setSelectedRoadId(matchedRoad?.id ?? "");
+    setSelectedDegradationId(matchedDegradation?.id ?? "");
+    setSelectedMeasurementCampaignKey("");
+    setMeasurementRows([]);
+    setDeflectionValue(row.deflectionValue == null ? "" : String(row.deflectionValue));
+    setAskDrainage(Boolean(String(row.drainageRecommendation || "").trim()));
+    setDecisionFieldErrors({});
+    setDecisionFormError("");
+    setDecisionResult({
+      road: matchedRoad || buildFallbackRoadFromHistory(row),
+      degradation: matchedDegradation || buildFallbackDegradationFromHistory(row),
+      probableCause: row.probableCause || "",
+      maintenanceSolution: row.maintenanceSolution || "",
+      contextualIntervention: row.contextualIntervention || null,
+      deflection: {
+        value: row.deflectionValue,
+        severity: row.deflectionSeverity || "",
+        recommendation: row.deflectionRecommendation || ""
+      },
+      drainage: {
+        needsAttention: Boolean(row.drainageNeedsAttention),
+        recommendation: row.drainageRecommendation || "",
+        ruleId: null
+      }
+    });
+    setActiveView("decision");
+    setError("");
+    setNotice("Décision historique rechargée dans l'aide à la décision.");
+    scrollPageTop();
+  }
+
   function handlePrepareMaintenanceFromDecision() {
     if (!decisionResult) {
       return;
@@ -2968,7 +3075,7 @@ export default function App() {
       <>
         <div className="print-sheet-header">
           <div className="print-sheet-header__brand">
-            <img className="print-sheet-header__logo" src="/logo-pad.png" alt="Logo Port Autonome de Douala" />
+            <img className="print-sheet-header__logo" src={appLogoSrc} alt="Logo Port Autonome de Douala" />
             <div>
               <strong>{appName}</strong>
               <div>Pilotez la maintenance routière du PAD avec des décisions rapides et fiables.</div>
@@ -4166,7 +4273,7 @@ export default function App() {
               <strong>{summary?.totals.completedMaintenance ?? 0}</strong>
             </div>
             <div className="kpi-card">
-              <span className="kpi-card__label">Budget déclaré</span>
+              <span className="kpi-card__label">Total frais entretien</span>
               <strong>{formatAmount(summary?.totals.estimatedBudget ?? null)}</strong>
             </div>
             <div className="kpi-card">
@@ -4687,36 +4794,6 @@ export default function App() {
             </div>
           ) : null}
 
-          {dynamicFeuil4Snapshot ? (
-            <div className="card">
-              <h3 className="card__title--spaced">Cockpit Decisionnel PAD</h3>
-              <p>
-                <strong>Domaine:</strong> {dynamicFeuil4Snapshot.domain}
-              </p>
-              <p>
-                <strong>SAP:</strong> {dynamicFeuil4Snapshot.sapSector}
-              </p>
-              <p>
-                <strong>Blvd/Rue:</strong> {dynamicFeuil4Snapshot.roadLabel} ({dynamicFeuil4Snapshot.roadMatch})
-              </p>
-              <p>
-                <strong>PK début/fin:</strong> {dynamicFeuil4Snapshot.pkStart} / {dynamicFeuil4Snapshot.pkEnd}
-              </p>
-              <p>
-                <strong>Observation:</strong> {dynamicFeuil4Snapshot.observation}
-              </p>
-              <p>
-                <strong>Validation cause:</strong> {dynamicFeuil4Snapshot.causeMatch}
-              </p>
-              <p>
-                <strong>D:</strong> {dynamicFeuil4Snapshot.deflectionValue} | <strong>État:</strong>{" "}
-                {dynamicFeuil4Snapshot.severity}
-              </p>
-              <p>
-                <strong>Intervention:</strong> {dynamicFeuil4Snapshot.recommendation}
-              </p>
-            </div>
-          ) : null}
         </section>
 
         <section className="panel decision-output decision-print-view">
@@ -4741,7 +4818,7 @@ export default function App() {
             <>
               <div className="print-sheet-header">
                 <div className="print-sheet-header__brand">
-                  <img className="print-sheet-header__logo" src="/logo-pad.png" alt="Logo Port Autonome de Douala" />
+                  <img className="print-sheet-header__logo" src={appLogoSrc} alt="Logo Port Autonome de Douala" />
                   <div>
                     <strong>{appName}</strong>
                     <div>Fiche d'aide à la décision de maintenance routière</div>
@@ -4785,6 +4862,9 @@ export default function App() {
                   <p>
                     <strong>État connu :</strong> {decisionResult.road.pavementState || "Non renseigné"}
                   </p>
+                  <p>
+                    <strong>Validation cause :</strong> {dynamicFeuil4Snapshot?.causeMatch || "-"}
+                  </p>
                 </div>
 
                 <div className="card">
@@ -4805,7 +4885,7 @@ export default function App() {
                 </div>
 
                 <div className="card card--full">
-                  <h3>Pourquoi cette décision ?</h3>
+                  <h3>Règles appliquées</h3>
                   <ul className="decision-list">
                     {(decisionSummary?.rationale || []).map((item, index) => (
                       <li key={`decision-rationale-${index}`}>{item}</li>
@@ -4859,14 +4939,6 @@ export default function App() {
                       <ClipboardPlus size={15} aria-hidden="true" />
                       <span>Créer un entretien</span>
                     </button>
-                    <button
-                      className="row-action row-action--with-icon row-action--nowrap row-action--compact row-action--print"
-                      type="button"
-                      onClick={handlePrintDecision}
-                    >
-                      <Printer size={15} aria-hidden="true" />
-                      <span>Imprimer la fiche</span>
-                    </button>
                   </div>
                 </div>
 
@@ -4888,42 +4960,23 @@ export default function App() {
                 </div>
 
                 <div
-                  className={`card card--full ${
-                    decisionResult.degradation.solutionSource === "MISSING" ? "card--solution-missing" : ""
+                  className={`card ${
+                    isToDetermineIntervention(decisionResult.contextualIntervention) ? "card--warning" : ""
                   }`}
                 >
-                  <h3>Traitement recommandé</h3>
-                  <div className="decision-grid decision-grid--compact">
-                    <div className="decision-detail">
-                      <span>Solution maintenance</span>
-                      <strong>{decisionResult.maintenanceSolution}</strong>
-                    </div>
-                    <div
-                      className={`decision-detail ${
-                        isToDetermineIntervention(decisionResult.contextualIntervention) ? "decision-detail--warning" : ""
-                      }`}
-                    >
-                      <span>Intervention contextuelle tronçon</span>
-                      <strong>{decisionResult.contextualIntervention || "à déterminer (A D)"}</strong>
-                    </div>
-                    <div className="decision-detail decision-detail--full">
-                      <span>Assainissement</span>
-                      <strong>{decisionResult.drainage.recommendation}</strong>
-                    </div>
-                  </div>
+                  <h3>Intervention contextuelle tronçon</h3>
+                  <p>
+                    <strong>{decisionResult.contextualIntervention || "à déterminer (A D)"}</strong>
+                  </p>
                 </div>
 
                 <div className="card card--full">
-                  <h3>Causes connues (catalogue)</h3>
-                  <ul className="decision-list">
-                    {decisionResult.degradation.causes.length > 0 ? (
-                      decisionResult.degradation.causes.map((cause, index) => (
-                        <li key={`${decisionResult.degradation.id}-${index}`}>{cause}</li>
-                      ))
-                    ) : (
-                      <li>Aucune cause détaillée en base pour cette dégradation.</li>
-                    )}
-                  </ul>
+                  <h3>Justification de la voie</h3>
+                  {String(decisionResult.road.justification || "").trim() ? (
+                    <p>{decisionResult.road.justification}</p>
+                  ) : (
+                    <p className="muted">Aucune justification détaillée n'est enregistrée pour cette voie.</p>
+                  )}
                 </div>
               </div>
 
@@ -5539,14 +5592,21 @@ export default function App() {
             </div>
 
             <div className="cell-field">
-              <label htmlFor="maintenance-state-before">État avant</label>
+              <label htmlFor="maintenance-state-before">
+                État avant <span className="field-label__required">*</span>
+              </label>
               <input
                 id="maintenance-state-before"
+                className={maintenanceFieldErrors.stateBefore ? "cell-field--error" : undefined}
                 value={maintenanceStateBefore}
-                onChange={(event) => setMaintenanceStateBefore(event.target.value)}
+                onChange={(event) => {
+                  setMaintenanceStateBefore(event.target.value);
+                  clearMaintenanceFieldError("stateBefore");
+                }}
                 placeholder="État observé avant intervention"
                 disabled={isMaintenanceBusy}
               />
+              {maintenanceFieldErrors.stateBefore ? <p className="field-error">{maintenanceFieldErrors.stateBefore}</p> : null}
             </div>
 
             <div className="cell-field">
@@ -5608,14 +5668,23 @@ export default function App() {
             </div>
 
             <div className="cell-field">
-              <label htmlFor="maintenance-responsible">Responsable PAD</label>
+              <label htmlFor="maintenance-responsible">
+                Responsable PAD <span className="field-label__required">*</span>
+              </label>
               <input
                 id="maintenance-responsible"
+                className={maintenanceFieldErrors.responsibleName ? "cell-field--error" : undefined}
                 value={maintenanceResponsibleName}
-                onChange={(event) => setMaintenanceResponsibleName(event.target.value)}
+                onChange={(event) => {
+                  setMaintenanceResponsibleName(event.target.value);
+                  clearMaintenanceFieldError("responsibleName");
+                }}
                 placeholder="Ex: Chef section voirie"
                 disabled={isMaintenanceBusy}
               />
+              {maintenanceFieldErrors.responsibleName ? (
+                <p className="field-error">{maintenanceFieldErrors.responsibleName}</p>
+              ) : null}
             </div>
 
             <div className="cell-field">
@@ -5682,7 +5751,9 @@ export default function App() {
             </div>
 
             <div className="cell-field">
-              <label htmlFor="maintenance-cost">Coût estimé</label>
+              <label htmlFor="maintenance-cost">
+                Coût estimé <span className="field-label__required">*</span>
+              </label>
               <input
                 id="maintenance-cost"
                 type="number"
@@ -5829,6 +5900,8 @@ export default function App() {
                   <th>Dégradation</th>
                   <th>État avant</th>
                   <th>État après</th>
+                  <th>D avant</th>
+                  <th>D après</th>
                   <th>Solution appliquée</th>
                   <th>Prestataire</th>
                   <th>Responsable</th>
@@ -5875,6 +5948,8 @@ export default function App() {
                     <td>{item.degradationName || "-"}</td>
                     <td>{item.stateBefore || "-"}</td>
                     <td>{item.stateAfter || "-"}</td>
+                    <td>{item.deflectionBefore != null ? String(item.deflectionBefore) : "-"}</td>
+                    <td>{item.deflectionAfter != null ? String(item.deflectionAfter) : "-"}</td>
                     <td>{item.solutionApplied || "-"}</td>
                     <td>{item.contractorName || "-"}</td>
                     <td>{item.responsibleName || "-"}</td>
@@ -5898,7 +5973,7 @@ export default function App() {
                 ))}
                 {maintenanceRows.length === 0 ? (
                   <tr>
-                    <td colSpan={14}>{isMaintenanceLoading ? "Chargement..." : "Aucun entretien enregistré."}</td>
+                    <td colSpan={16}>{isMaintenanceLoading ? "Chargement..." : "Aucun entretien enregistré."}</td>
                   </tr>
                 ) : null}
               </tbody>
@@ -5961,6 +6036,7 @@ export default function App() {
             <table>
               <thead>
                 <tr>
+                  <th className="col-actions">Action</th>
                   <th>Date</th>
                   <th>SAP</th>
                   <th>Voie</th>
@@ -5975,6 +6051,18 @@ export default function App() {
               <tbody>
                 {historyRows.map((row) => (
                   <tr key={row.id}>
+                    <td className="col-actions">
+                      <button
+                        className="row-action row-action--evaluate row-action--with-icon row-action--compact"
+                        type="button"
+                        onClick={() => handleReviewHistoryDecision(row)}
+                        title="Revoir dans l'aide à la décision"
+                        aria-label="Revoir dans l'aide à la décision"
+                      >
+                        <Gauge size={14} aria-hidden="true" />
+                        <span>Revoir</span>
+                      </button>
+                    </td>
                     <td>{fmtDate(row.createdAt)}</td>
                     <td>{row.sapCode}</td>
                     <td>
@@ -5990,7 +6078,7 @@ export default function App() {
                 ))}
                 {historyRows.length === 0 ? (
                   <tr>
-                    <td colSpan={9}>{isHistoryLoading ? "Chargement..." : "Aucun historique disponible."}</td>
+                    <td colSpan={10}>{isHistoryLoading ? "Chargement..." : "Aucun historique disponible."}</td>
                   </tr>
                 ) : null}
               </tbody>
@@ -8237,7 +8325,7 @@ export default function App() {
     return (
       <div className="bridge-error-shell">
         <div className="bridge-error-card">
-          <img className="hero-logo" src="/logo-pad.png" alt="Logo Port Autonome de Douala" />
+          <img className="hero-logo" src={appLogoSrc} alt="Logo Port Autonome de Douala" />
           <h1>Bridge Electron indisponible</h1>
           <p>Lance l'application avec `npm run dev` puis ouvre la fenetre Electron.</p>
         </div>
@@ -8249,7 +8337,7 @@ export default function App() {
     <div className="app-shell">
       <header className="hero">
         <div className="hero__brand">
-          <img className="hero-logo" src="/logo-pad.png" alt="Logo Port Autonome de Douala" />
+          <img className="hero-logo" src={appLogoSrc} alt="Logo Port Autonome de Douala" />
           <div>
             <h1>PAD Outil de Maintenance Routière</h1>
             <p>Pilotez la maintenance routière du PAD avec des décisions rapides et fiables.</p>

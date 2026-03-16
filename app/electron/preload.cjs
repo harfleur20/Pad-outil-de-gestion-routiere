@@ -82,6 +82,9 @@ contextBridge.exposeInMainWorld("padApp", {
   printing: {
     exportCurrentViewPdf: (suggestedName) => ipcRenderer.invoke("printing:exportCurrentViewPdf", suggestedName)
   },
+  lifecycle: {
+    notifyReady: () => ipcRenderer.send("app:ready")
+  },
   ping: () => true
 });
 

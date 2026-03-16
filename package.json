@@ -1,8 +1,8 @@
 {
   "name": "projet-pad",
-  "version": "0.6.0",
+  "version": "0.8.2",
   "description": "Application desktop d'aide à la maintenance routière pour le PAD.",
-  "author": "PAD Maintenance Team",
+  "author": "Five Design Group Sarl",
   "private": true,
   "type": "module",
   "main": "app/electron/main.cjs",
@@ -50,14 +50,21 @@
     ],
     "win": {
       "icon": "app/electron/assets/icon.ico",
-      "signAndEditExecutable": false,
       "target": [
         "nsis"
       ]
     },
     "nsis": {
+      "artifactName": "PAD-Maintenance-Routiere-Setup-${version}.${ext}",
       "installerIcon": "app/electron/assets/icon.ico",
-      "uninstallerIcon": "app/electron/assets/icon.ico"
+      "uninstallerIcon": "app/electron/assets/icon.ico",
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "runAfterFinish": true,
+      "shortcutName": "PAD Maintenance Routière"
     }
   }
 }

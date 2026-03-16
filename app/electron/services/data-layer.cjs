@@ -4320,6 +4320,21 @@ function upsertMaintenanceIntervention(db, payload = {}) {
     throw new Error("Date d'intervention obligatoire.");
   }
 
+  const stateBefore = toText(payload.stateBefore);
+  if (!stateBefore) {
+    throw new Error("Etat avant obligatoire.");
+  }
+
+  const responsibleName = toText(payload.responsibleName);
+  if (!responsibleName) {
+    throw new Error("Responsable PAD obligatoire.");
+  }
+
+  const costAmount = toNumber(payload.costAmount);
+  if (costAmount === null || !Number.isFinite(costAmount) || costAmount < 0) {
+    throw new Error("Cout estime obligatoire et valide.");
+  }
+
   const status = normalizeMaintenanceStatus(payload.status) || "PREVU";
   const completionDate =
     toText(payload.completionDate) || (status === "TERMINE" ? interventionDate : "");
@@ -4336,16 +4351,16 @@ function upsertMaintenanceIntervention(db, payload = {}) {
     status,
     interventionDate,
     completionDate,
-    toText(payload.stateBefore),
+    stateBefore,
     toText(payload.stateAfter),
     toNumber(payload.deflectionBefore),
     toNumber(payload.deflectionAfter),
     toText(payload.solutionApplied),
     toText(payload.contractorName),
-    toText(payload.responsibleName),
+    responsibleName,
     toText(payload.attachmentPath),
     toText(payload.observation),
-    toNumber(payload.costAmount)
+    costAmount
   ];
 
   let targetId = null;

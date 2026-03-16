@@ -5,8 +5,18 @@ const { getAppMetadata } = require("./app-metadata.cjs");
 
 const isDev = !app.isPackaged;
 let dataLayer = null;
+let mainWindow = null;
+let splashWindow = null;
+let startupFallbackTimer = null;
+let startupFinalizeTimer = null;
+let splashStageState = {
+  status: "Initialisation du logiciel",
+  caption: "Préparation de l'environnement",
+  progress: 18
+};
 const appIconPath = path.join(__dirname, "assets", "icon.ico");
 const { appName, appVersion } = getAppMetadata();
+const appTagline = "Pilotez la maintenance routière du PAD avec des décisions rapides et fiables.";
 const MAX_ATTACHMENT_SIZE_BYTES = 2 * 1024 * 1024;
 const MAINTENANCE_ATTACHMENT_EXTENSIONS = [
   "png",
@@ -27,6 +37,7 @@ if (process.platform === "win32") {
 
 function createMainWindow() {
   const win = new BrowserWindow({
+    show: false,
     width: 1320,
     height: 860,
     minWidth: 1100,
@@ -46,11 +57,298 @@ function createMainWindow() {
   } else {
     win.loadFile(path.join(__dirname, "../web/dist/index.html"));
   }
+
+  win.on("closed", () => {
+    if (mainWindow === win) {
+      mainWindow = null;
+    }
+  });
+
+  mainWindow = win;
+  return win;
+}
+
+function resolveSplashLogoPath() {
+  const candidates = [
+    path.join(__dirname, "../web/public/logo-pad.png"),
+    path.join(__dirname, "../web/dist/logo-pad.png")
+  ];
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return "";
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function buildSplashHtml() {
+  const splashLogoPath = resolveSplashLogoPath();
+  const splashLogoDataUrl = splashLogoPath
+    ? `data:image/${path.extname(splashLogoPath).replace(".", "") || "png"};base64,${fs
+        .readFileSync(splashLogoPath)
+        .toString("base64")}`
+    : "";
+
+  return `<!doctype html>
+  <html lang="fr">
+    <head>
+      <meta charset="UTF-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+      <title>${escapeHtml(appName)}</title>
+      <style>
+        :root {
+          --pad-blue-dark: #0a2f8f;
+          --pad-blue: #115eb8;
+          --pad-cyan: #25afe7;
+          --pad-white: #ffffff;
+          --pad-muted: #546788;
+          --pad-surface: #f4f9ff;
+          --pad-line: rgba(17, 94, 184, 0.12);
+        }
+
+        * { box-sizing: border-box; }
+        body {
+          margin: 0;
+          min-height: 100vh;
+          display: grid;
+          place-items: center;
+          overflow: hidden;
+          font-family: "Montserrat", "Trebuchet MS", sans-serif;
+          background: transparent;
+          color: #07224b;
+        }
+
+        .startup-shell {
+          width: 100%;
+          height: 100vh;
+          padding: 18px;
+          display: grid;
+          place-items: center;
+        }
+
+        .startup-card {
+          width: min(100%, 420px);
+          min-height: 420px;
+          padding: 28px 28px 24px;
+          border-radius: 24px;
+          background: #ffffff;
+          border: 1px solid var(--pad-line);
+          box-shadow: 0 24px 60px rgba(10, 47, 143, 0.12);
+          position: relative;
+          overflow: hidden;
+          text-align: center;
+          display: grid;
+          align-content: center;
+        }
+
+        .startup-card::before {
+          content: "";
+          position: absolute;
+          inset: 0 auto auto 0;
+          width: 100%;
+          height: 4px;
+          background: linear-gradient(90deg, var(--pad-blue-dark), var(--pad-blue), var(--pad-cyan));
+          opacity: 0.9;
+        }
+
+        .startup-logo {
+          width: 68px;
+          height: 68px;
+          margin: 0 auto 16px;
+          object-fit: contain;
+          display: block;
+        }
+
+        .startup-title {
+          margin: 0;
+          color: var(--pad-blue-dark);
+          font-size: 1.58rem;
+          line-height: 1.08;
+          font-weight: 800;
+          letter-spacing: -0.02em;
+        }
+
+        .startup-tagline {
+          margin: 10px auto 0;
+          max-width: 320px;
+          color: var(--pad-muted);
+          font-size: 0.88rem;
+          line-height: 1.5;
+        }
+
+        .startup-status {
+          margin-top: 22px;
+          color: var(--pad-muted);
+          font-size: 0.86rem;
+          line-height: 1.45;
+          min-height: 1.4em;
+        }
+
+        .startup-progress {
+          margin-top: 12px;
+          width: 100%;
+          height: 6px;
+          border-radius: 999px;
+          background: #e8f0fb;
+          overflow: hidden;
+          position: relative;
+        }
+
+        .startup-progress__bar {
+          width: 18%;
+          height: 100%;
+          border-radius: inherit;
+          background: linear-gradient(90deg, var(--pad-blue-dark), var(--pad-blue), var(--pad-cyan));
+          transition: width 320ms ease;
+        }
+
+        .startup-caption {
+          margin-top: 10px;
+          font-size: 0.72rem;
+          color: var(--pad-blue);
+          font-weight: 600;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+          min-height: 1.2em;
+        }
+
+        .startup-version {
+          margin-top: 18px;
+          font-size: 0.78rem;
+          color: var(--pad-muted);
+        }
+      </style>
+    </head>
+    <body>
+      <div class="startup-shell">
+        <section class="startup-card" aria-label="Écran de lancement PAD">
+          ${splashLogoDataUrl ? `<img class="startup-logo" src="${splashLogoDataUrl}" alt="Logo Port Autonome de Douala" />` : ""}
+          <h1 class="startup-title">${escapeHtml(appName)}</h1>
+          <p class="startup-tagline">${escapeHtml(appTagline)}</p>
+          <div class="startup-status" id="startup-status">${escapeHtml(splashStageState.status)}</div>
+          <div class="startup-progress" aria-hidden="true">
+            <div class="startup-progress__bar" id="startup-progress-bar" style="width:${Math.max(6, Math.min(100, splashStageState.progress))}%"></div>
+          </div>
+          <div class="startup-caption" id="startup-caption">${escapeHtml(splashStageState.caption)}</div>
+          <div class="startup-version">Version ${escapeHtml(appVersion)}</div>
+        </section>
+      </div>
+    </body>
+  </html>`;
+}
+
+function clearStartupFallbackTimer() {
+  if (startupFallbackTimer) {
+    clearTimeout(startupFallbackTimer);
+    startupFallbackTimer = null;
+  }
+}
+
+function clearStartupFinalizeTimer() {
+  if (startupFinalizeTimer) {
+    clearTimeout(startupFinalizeTimer);
+    startupFinalizeTimer = null;
+  }
+}
+
+function applySplashStage() {
+  if (!splashWindow || splashWindow.isDestroyed()) {
+    return;
+  }
+
+  const script = `
+    (() => {
+      const status = document.getElementById("startup-status");
+      const caption = document.getElementById("startup-caption");
+      const bar = document.getElementById("startup-progress-bar");
+      if (status) status.textContent = ${JSON.stringify(splashStageState.status)};
+      if (caption) caption.textContent = ${JSON.stringify(splashStageState.caption)};
+      if (bar) bar.style.width = ${JSON.stringify(`${Math.max(6, Math.min(100, splashStageState.progress))}%`)};
+    })();
+  `;
+
+  splashWindow.webContents.executeJavaScript(script, true).catch(() => {});
+}
+
+function setSplashStage(status, caption, progress) {
+  splashStageState = {
+    status,
+    caption,
+    progress
+  };
+  applySplashStage();
+}
+
+function finalizeStartup() {
+  clearStartupFallbackTimer();
+  clearStartupFinalizeTimer();
+
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.show();
+    mainWindow.focus();
+  }
+
+  if (splashWindow && !splashWindow.isDestroyed()) {
+    splashWindow.close();
+    splashWindow = null;
+  }
+}
+
+function createSplashWindow() {
+  if (splashWindow && !splashWindow.isDestroyed()) {
+    return splashWindow;
+  }
+
+  const win = new BrowserWindow({
+    width: 520,
+    height: 520,
+    resizable: false,
+    movable: true,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    frame: false,
+    transparent: true,
+    autoHideMenuBar: true,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    backgroundColor: "#00000000",
+    show: true
+  });
+
+  win.loadURL(`data:text/html;charset=UTF-8,${encodeURIComponent(buildSplashHtml())}`);
+  win.webContents.on("did-finish-load", () => {
+    applySplashStage();
+  });
+  win.on("closed", () => {
+    if (splashWindow === win) {
+      splashWindow = null;
+    }
+  });
+
+  splashWindow = win;
+  return win;
 }
 
 function registerIpcHandlers() {
   ipcMain.on("app:getMetadataSync", (event) => {
     event.returnValue = { appName, appVersion };
+  });
+  ipcMain.on("app:ready", () => {
+    setSplashStage("Ouverture du logiciel", "Préparation de l'interface", 100);
+    clearStartupFinalizeTimer();
+    startupFinalizeTimer = setTimeout(finalizeStartup, 220);
   });
   ipcMain.handle("data:status", () => dataLayer.getDataStatus());
   ipcMain.handle("data:importFromExcel", (_event, excelPath) => dataLayer.importFromExcel(excelPath));
@@ -307,17 +605,34 @@ process.on("unhandledRejection", (reason) => {
 
 async function bootstrap() {
   try {
+    createSplashWindow();
+    setSplashStage("Initialisation du logiciel", "Préparation de l'environnement", 18);
     const { setupDataLayer } = require("./services/data-layer.cjs");
     dataLayer = setupDataLayer({ app });
+    setSplashStage("Chargement du référentiel", "Ouverture des catalogues PAD", 68);
     registerIpcHandlers();
     createMainWindow();
+    setSplashStage("Ouverture du logiciel", "Préparation de l'interface", 88);
+    clearStartupFallbackTimer();
+    startupFallbackTimer = setTimeout(finalizeStartup, 15000);
 
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) {
+        createSplashWindow();
+        setSplashStage("Initialisation du logiciel", "Préparation de l'environnement", 18);
         createMainWindow();
+        setSplashStage("Ouverture du logiciel", "Préparation de l'interface", 88);
+        clearStartupFallbackTimer();
+        startupFallbackTimer = setTimeout(finalizeStartup, 15000);
       }
     });
   } catch (error) {
+    clearStartupFallbackTimer();
+    clearStartupFinalizeTimer();
+    if (splashWindow && !splashWindow.isDestroyed()) {
+      splashWindow.close();
+      splashWindow = null;
+    }
     console.error("[PAD] Echec au demarrage:", error);
     dialog.showErrorBox("PAD - Erreur de demarrage", getStartupErrorMessage(error));
     app.quit();
