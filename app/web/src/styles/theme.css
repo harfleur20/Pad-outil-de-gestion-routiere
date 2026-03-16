@@ -388,6 +388,143 @@ body {
   gap: 10px;
 }
 
+.decision-grid--compact {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.decision-hero {
+  display: grid;
+  gap: 10px;
+  padding: 18px;
+  background: linear-gradient(135deg, rgba(10, 47, 143, 0.07), rgba(37, 175, 231, 0.08));
+  border-color: rgba(10, 47, 143, 0.18);
+}
+
+.decision-hero__eyebrow {
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--pad-muted);
+}
+
+.decision-hero__title {
+  margin: 0;
+  font-size: 1.5rem;
+  line-height: 1.15;
+}
+
+.decision-hero__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.decision-hero__cause {
+  margin: 0;
+}
+
+.decision-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid #dbe8f8;
+  background: #f6f9ff;
+  color: var(--pad-blue-dark);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.decision-badge--ok {
+  border-color: rgba(85, 160, 90, 0.35);
+  background: rgba(85, 160, 90, 0.12);
+  color: #275b2d;
+}
+
+.decision-badge--warning {
+  border-color: rgba(211, 170, 39, 0.4);
+  background: rgba(255, 232, 158, 0.45);
+  color: #8b6511;
+}
+
+.decision-badge--alert {
+  border-color: rgba(179, 32, 46, 0.3);
+  background: rgba(179, 32, 46, 0.1);
+  color: #8b2130;
+}
+
+.decision-badge--neutral {
+  border-color: rgba(10, 47, 143, 0.16);
+  background: rgba(10, 47, 143, 0.06);
+  color: var(--pad-blue-dark);
+}
+
+.decision-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 8px;
+}
+
+.decision-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.decision-compare {
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid #dbe8f8;
+  background: #ffffff;
+  margin-bottom: 10px;
+}
+
+.decision-compare:last-child {
+  margin-bottom: 0;
+}
+
+.decision-compare span,
+.decision-detail span {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 0.8rem;
+  color: var(--pad-muted);
+}
+
+.decision-compare strong,
+.decision-detail strong {
+  display: block;
+  color: var(--pad-blue-dark);
+}
+
+.decision-compare small {
+  display: block;
+  margin-top: 4px;
+  color: var(--pad-muted);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.decision-detail {
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid #dbe8f8;
+  background: #ffffff;
+}
+
+.decision-detail--warning {
+  border-color: #f1d24d;
+  background: #fff7c7;
+}
+
+.decision-detail--full {
+  grid-column: 1 / -1;
+}
+
 .measurement-card {
   display: grid;
   gap: 10px;
@@ -1334,6 +1471,12 @@ label {
     width: 100%;
   }
 
+  .decision-print-view {
+    border: none !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+  }
+
   .print-sheet-header,
   .print-sheet-heading,
   .print-sheet-footer {
@@ -1399,6 +1542,85 @@ label {
   .decision-output > .dashboard-card__header,
   .decision-output > .muted {
     display: none !important;
+  }
+
+  .decision-actions {
+    display: none !important;
+  }
+
+  .decision-print-view .decision-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 14px;
+    align-items: start;
+  }
+
+  .decision-print-view .card,
+  .decision-print-view .decision-compare,
+  .decision-print-view .decision-detail {
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    margin: 0 !important;
+    padding: 2px 0 !important;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .decision-print-view .decision-hero {
+    gap: 6px;
+    padding: 0 0 6px !important;
+  }
+
+  .decision-print-view .decision-hero__title {
+    font-size: 1.22rem;
+    line-height: 1.18;
+  }
+
+  .decision-print-view .decision-hero__badges {
+    gap: 6px;
+  }
+
+  .decision-print-view .decision-badge {
+    padding: 4px 8px;
+    font-size: 0.74rem;
+  }
+
+  .decision-print-view .decision-list {
+    gap: 5px;
+    padding-left: 16px;
+  }
+
+  .decision-print-view .decision-compare + .decision-compare {
+    margin-top: 6px;
+  }
+
+  .decision-print-view .decision-compare span,
+  .decision-print-view .decision-detail span,
+  .decision-print-view .decision-compare small {
+    font-size: 0.72rem;
+    line-height: 1.35;
+  }
+
+  .decision-print-view .decision-compare strong,
+  .decision-print-view .decision-detail strong {
+    font-size: 0.9rem;
+    line-height: 1.25;
+  }
+
+  .decision-print-view .card h3 {
+    margin-bottom: 6px;
+    font-size: 0.94rem;
+  }
+
+  .decision-print-view .card p {
+    margin-bottom: 4px;
+    font-size: 0.78rem;
+    line-height: 1.35;
+  }
+
+  .decision-print-view .decision-grid--compact {
+    gap: 8px 12px;
   }
 
   .workspace-side-stack,

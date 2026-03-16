@@ -1161,6 +1161,100 @@ export default function App() {
     [allRoads, sapSectors]
   );
   const latestMaintenance = maintenancePreviewRows[0] ?? null;
+  const latestDecisionCampaign = useMemo(() => {
+    if (decisionMeasurementCampaigns.length === 0) {
+      return null;
+    }
+    return [...decisionMeasurementCampaigns].sort((a, b) => {
+      const dateA = Date.parse(a.measurementDate || "");
+      const dateB = Date.parse(b.measurementDate || "");
+      if (Number.isFinite(dateA) && Number.isFinite(dateB) && dateA !== dateB) {
+        return dateB - dateA;
+      }
+      return b.id - a.id;
+    })[0];
+  }, [decisionMeasurementCampaigns]);
+  const decisionSummary = useMemo(() => {
+    if (!decisionResult) {
+      return null;
+    }
+
+    const hasDeflection = decisionResult.deflection.value != null;
+    const hasCause = Boolean(String(decisionResult.probableCause || "").trim());
+    const hasSolution =
+      Boolean(String(decisionResult.maintenanceSolution || "").trim()) &&
+      decisionResult.degradation.solutionSource !== "MISSING";
+    const hasContextualIntervention = Boolean(
+      decisionResult.contextualIntervention && !isToDetermineIntervention(decisionResult.contextualIntervention)
+    );
+    const warnings: string[] = [];
+    let confidenceScore = 0;
+
+    if (hasDeflection) {
+      confidenceScore += 2;
+    } else {
+      warnings.push("Décision calculée sans valeur D mesurée.");
+    }
+
+    if (hasCause) {
+      confidenceScore += 1;
+    } else {
+      warnings.push("Cause probable non renseignée.");
+    }
+
+    if (hasSolution) {
+      confidenceScore += 1;
+    } else {
+      warnings.push("Solution de maintenance encore à préciser dans le catalogue.");
+    }
+
+    if (askDrainage) {
+      confidenceScore += 1;
+    } else {
+      warnings.push("Assainissement non interrogé explicitement dans cette analyse.");
+    }
+
+    if (decisionResult.drainage.needsAttention) {
+      warnings.push("L'assainissement demande une vigilance particulière.");
+    } else {
+      confidenceScore += 1;
+    }
+
+    if (!hasContextualIntervention) {
+      warnings.push("Intervention contextuelle tronçon encore à préciser.");
+    }
+
+    const confidence =
+      confidenceScore >= 5
+        ? { label: "Décision robuste", tone: "ok" as const }
+        : confidenceScore >= 3
+          ? { label: "Décision à confirmer", tone: "warning" as const }
+          : { label: "Décision fragile", tone: "alert" as const };
+
+    const finalRecommendation =
+      (hasContextualIntervention ? decisionResult.contextualIntervention : "") ||
+      decisionResult.maintenanceSolution ||
+      toDeflectionRecommendationLabel(decisionResult.deflection.recommendation) ||
+      "À confirmer";
+
+    const rationale = [
+      `Voie analysée : ${decisionResult.road.roadCode} - ${decisionResult.road.designation} (${decisionResult.road.sapCode || "SAP?"}).`,
+      `Dégradation retenue : ${decisionResult.degradation.name}${hasCause ? `, cause probable ${decisionResult.probableCause}.` : "."}`,
+      hasDeflection
+        ? `Déflexion retenue : D = ${decisionResult.deflection.value}, niveau ${toDeflectionSeverityLabel(
+            decisionResult.deflection.severity
+          )}, orientation ${toDeflectionRecommendationLabel(decisionResult.deflection.recommendation)}.`
+        : "Déflexion non renseignée : la recommandation repose sur les autres règles métier disponibles.",
+      `Assainissement : ${decisionResult.drainage.recommendation}${decisionResult.drainage.needsAttention ? " Une vigilance est requise." : ""}`
+    ];
+
+    return {
+      confidence,
+      finalRecommendation,
+      warnings,
+      rationale
+    };
+  }, [askDrainage, decisionResult]);
   const filteredDegradations = useMemo(() => {
     const searchTerm = degradationSearch.trim().toLowerCase();
     if (!searchTerm) {
@@ -2800,6 +2894,50 @@ export default function App() {
 
   function handlePrintDecision() {
     void exportCurrentPdf("fiche-decision-pad");
+  }
+
+  function handleOpenDecisionHistory() {
+    setActiveView("history");
+    setNotice("La décision calculée est enregistrée automatiquement dans l'historique.");
+    setError("");
+    scrollPageTop();
+  }
+
+  function handlePrepareMaintenanceFromDecision() {
+    if (!decisionResult) {
+      return;
+    }
+    resetMaintenanceForm();
+    setMaintenanceRoadId(decisionResult.road.id);
+    setMaintenanceDegradationCode(decisionResult.degradation.name || "");
+    setMaintenanceType(
+      (!isToDetermineIntervention(decisionResult.contextualIntervention) && decisionResult.contextualIntervention) ||
+        toDeflectionRecommendationLabel(decisionResult.deflection.recommendation) ||
+        decisionResult.maintenanceSolution ||
+        ""
+    );
+    setMaintenanceStatus("PREVU");
+    setMaintenanceDate(new Date().toISOString().slice(0, 10));
+    setMaintenanceStateBefore(decisionResult.road.pavementState || "");
+    setMaintenanceDeflectionBefore(
+      decisionResult.deflection.value == null ? "" : String(decisionResult.deflection.value)
+    );
+    setMaintenanceSolutionApplied(decisionResult.maintenanceSolution || "");
+    setMaintenanceObservation(
+      [
+        `Cause probable: ${decisionResult.probableCause || "-"}`,
+        `Assainissement: ${decisionResult.drainage.recommendation || "-"}`,
+        `Décision: ${
+          (!isToDetermineIntervention(decisionResult.contextualIntervention) && decisionResult.contextualIntervention) ||
+          toDeflectionRecommendationLabel(decisionResult.deflection.recommendation) ||
+          "-"
+        }`
+      ].join(" | ")
+    );
+    setActiveView("maintenance");
+    setNotice("Fiche d'entretien préremplie à partir du résultat automatique.");
+    setError("");
+    scrollPageTop();
   }
 
   function handlePrintActiveSheet() {
@@ -4581,7 +4719,7 @@ export default function App() {
           ) : null}
         </section>
 
-        <section className="panel decision-output">
+        <section className="panel decision-output decision-print-view">
           <div className="dashboard-card__header">
             <div>
               <h2>Résultat automatique</h2>
@@ -4612,38 +4750,141 @@ export default function App() {
               </div>
 
               <div className="decision-grid">
+                <div className="card decision-hero card--full">
+                  <div className="decision-hero__eyebrow">Décision recommandée</div>
+                  <h3 className="decision-hero__title">{decisionSummary?.finalRecommendation || "À confirmer"}</h3>
+                  <div className="decision-hero__badges">
+                    <span className="decision-badge decision-badge--neutral">
+                      Sévérité : {toDeflectionSeverityLabel(decisionResult.deflection.severity)}
+                    </span>
+                    <span className={`decision-badge decision-badge--${decisionSummary?.confidence.tone || "neutral"}`}>
+                      {decisionSummary?.confidence.label || "Décision calculée"}
+                    </span>
+                    {decisionResult.drainage.needsAttention ? (
+                      <span className="decision-badge decision-badge--alert">Assainissement à surveiller</span>
+                    ) : (
+                      <span className="decision-badge decision-badge--ok">Assainissement maîtrisé</span>
+                    )}
+                  </div>
+                  <p className="decision-hero__cause">
+                    <strong>Cause probable :</strong> {decisionResult.probableCause || "Non renseignée"}
+                  </p>
+                </div>
+
                 <div className="card">
-                  <h3>Voie sélectionnée</h3>
+                  <h3>Voie analysée</h3>
                   <p>
                     <strong>{decisionResult.road.designation}</strong> ({decisionResult.road.roadCode})
                   </p>
-                  <p>{decisionResult.road.sapCode}</p>
                   <p>
-                    {decisionResult.road.startLabel}
-                    {" -> "}
-                    {decisionResult.road.endLabel}
+                    <strong>SAP :</strong> {decisionResult.road.sapCode || "-"}
+                  </p>
+                  <p>
+                    <strong>Début / fin :</strong> {decisionResult.road.startLabel || "-"} / {decisionResult.road.endLabel || "-"}
+                  </p>
+                  <p>
+                    <strong>État connu :</strong> {decisionResult.road.pavementState || "Non renseigné"}
                   </p>
                 </div>
 
                 <div className="card">
-                  <h3>Dégradation</h3>
-                  <p>{decisionResult.degradation.name}</p>
+                  <h3>Dégradation et déflexion</h3>
                   <p>
-                    <strong>Cause probable:</strong> {decisionResult.probableCause}
+                    <strong>Dégradation :</strong> {decisionResult.degradation.name}
+                  </p>
+                  <p>
+                    <strong>D :</strong> {decisionResult.deflection.value ?? "non renseigné"}
+                  </p>
+                  <p>
+                    <strong>Niveau :</strong> {toDeflectionSeverityLabel(decisionResult.deflection.severity)}
+                  </p>
+                  <p>
+                    <strong>Orientation déflexion :</strong>{" "}
+                    {toDeflectionRecommendationLabel(decisionResult.deflection.recommendation)}
                   </p>
                 </div>
 
+                <div className="card card--full">
+                  <h3>Pourquoi cette décision ?</h3>
+                  <ul className="decision-list">
+                    {(decisionSummary?.rationale || []).map((item, index) => (
+                      <li key={`decision-rationale-${index}`}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+
                 <div className="card">
-                  <h3>Déflexion</h3>
-                  <p>
-                    <strong>D:</strong> {decisionResult.deflection.value ?? "non renseigné"}
-                  </p>
-                  <p>
-                    <strong>État:</strong> {toDeflectionSeverityLabel(decisionResult.deflection.severity)}
-                  </p>
-                  <p>
-                    <strong>Intervention:</strong> {toDeflectionRecommendationLabel(decisionResult.deflection.recommendation)}
-                  </p>
+                  <h3>Comparaison terrain</h3>
+                  {latestDecisionCampaign ? (
+                    <div className="decision-compare">
+                      <div>
+                        <span>Dernière campagne Feuil1</span>
+                        <strong>{latestDecisionCampaign.measurementDate || "-"}</strong>
+                        <small>
+                          Dc max {formatMeasurementNumber(latestDecisionCampaign.maxDeflectionDc)} / Dc moyen{" "}
+                          {formatMeasurementNumber(latestDecisionCampaign.avgDeflectionDc)}
+                        </small>
+                      </div>
+                    </div>
+                  ) : null}
+                  {latestMaintenance ? (
+                    <div className="decision-compare">
+                      <div>
+                        <span>Dernier entretien</span>
+                        <strong>{latestMaintenance.interventionDate || "-"}</strong>
+                        <small>
+                          {toMaintenanceStatusLabel(latestMaintenance.status)} · {latestMaintenance.stateAfter || "État après non renseigné"}
+                        </small>
+                      </div>
+                    </div>
+                  ) : null}
+                  {!latestDecisionCampaign && !latestMaintenance ? (
+                    <p className="muted">Aucune campagne récente ni entretien enregistré pour comparer l'évolution.</p>
+                  ) : null}
+                </div>
+
+                <div className="card">
+                  <h3>Actions</h3>
+                  <p className="muted">La décision est déjà enregistrée dans l'historique après calcul.</p>
+                  <div className="decision-actions">
+                    <button className="row-action row-action--with-icon row-action--compact" type="button" onClick={handleOpenDecisionHistory}>
+                      <History size={15} aria-hidden="true" />
+                      <span>Historique</span>
+                    </button>
+                    <button
+                      className="row-action row-action--with-icon row-action--compact"
+                      type="button"
+                      onClick={handlePrepareMaintenanceFromDecision}
+                    >
+                      <ClipboardPlus size={15} aria-hidden="true" />
+                      <span>Créer un entretien</span>
+                    </button>
+                    <button
+                      className="row-action row-action--with-icon row-action--nowrap row-action--compact row-action--print"
+                      type="button"
+                      onClick={handlePrintDecision}
+                    >
+                      <Printer size={15} aria-hidden="true" />
+                      <span>Imprimer la fiche</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div
+                  className={`card ${
+                    decisionSummary?.warnings.length ? "card--warning" : ""
+                  }`}
+                >
+                  <h3>Alerte métier</h3>
+                  {decisionSummary?.warnings.length ? (
+                    <ul className="decision-list">
+                      {decisionSummary.warnings.map((warning, index) => (
+                        <li key={`decision-warning-${index}`}>{warning}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="muted">Aucune alerte bloquante détectée pour cette décision.</p>
+                  )}
                 </div>
 
                 <div
@@ -4651,27 +4892,30 @@ export default function App() {
                     decisionResult.degradation.solutionSource === "MISSING" ? "card--solution-missing" : ""
                   }`}
                 >
-                  <h3>Solution maintenance</h3>
-                  <p>{decisionResult.maintenanceSolution}</p>
-                </div>
-
-                <div className="card card--full">
-                  <h3>Assainissement</h3>
-                  <p>{decisionResult.drainage.recommendation}</p>
-                </div>
-
-                <div
-                  className={`card card--full ${
-                    isToDetermineIntervention(decisionResult.contextualIntervention) ? "card--warning" : ""
-                  }`}
-                >
-                  <h3>Intervention contextuelle tronçon</h3>
-                  <p>{decisionResult.contextualIntervention || "à déterminer (A D)"}</p>
+                  <h3>Traitement recommandé</h3>
+                  <div className="decision-grid decision-grid--compact">
+                    <div className="decision-detail">
+                      <span>Solution maintenance</span>
+                      <strong>{decisionResult.maintenanceSolution}</strong>
+                    </div>
+                    <div
+                      className={`decision-detail ${
+                        isToDetermineIntervention(decisionResult.contextualIntervention) ? "decision-detail--warning" : ""
+                      }`}
+                    >
+                      <span>Intervention contextuelle tronçon</span>
+                      <strong>{decisionResult.contextualIntervention || "à déterminer (A D)"}</strong>
+                    </div>
+                    <div className="decision-detail decision-detail--full">
+                      <span>Assainissement</span>
+                      <strong>{decisionResult.drainage.recommendation}</strong>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="card card--full">
                   <h3>Causes connues (catalogue)</h3>
-                  <ul>
+                  <ul className="decision-list">
                     {decisionResult.degradation.causes.length > 0 ? (
                       decisionResult.degradation.causes.map((cause, index) => (
                         <li key={`${decisionResult.degradation.id}-${index}`}>{cause}</li>
