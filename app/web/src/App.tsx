@@ -166,7 +166,7 @@ function getSheetFieldPlaceholder(sheetName: string | undefined, column: SheetCo
     if (column === "C") return "Ex: Rue.01";
     if (column === "D") return "Ex: 700";
     if (column === "E") return "Ex: Rue des Archives";
-    if (column === "F") return "Ex: de Dangote à Quai 60";
+    if (column === "F") return "Ex: Dangote à Quai 60";
     if (column === "G") return "Ex: Nom choisi à cause de l'activité de la zone";
   }
   if (sheetName === "Feuil4") {
@@ -242,7 +242,7 @@ function getSheetFieldHelpText(sheetName: string | undefined, column: SheetColum
     if (column === "C") return "Code court de la voie.";
     if (column === "D") return "Longueur totale en mètres.";
     if (column === "E") return "Nom proposé pour cette voie.";
-    if (column === "F") return "Écrivez l'itinéraire sous la forme de ... à ...";
+    if (column === "F") return "Écrivez le début et la fin sous la forme Dangote à Quai 60.";
     if (column === "G") return "Expliquez simplement pourquoi ce nom a été choisi.";
   }
   if (sheetName === "Feuil4") {
@@ -267,13 +267,13 @@ function getSheetFieldHelpText(sheetName: string | undefined, column: SheetColum
 
 function getRequiredSheetColumns(sheetName: string | undefined): SheetColumnKey[] {
   if (sheetName === "Feuil2") {
-    return ["A", "B", "C", "D", "E", "F", "G"];
+    return ["A", "B", "C"];
   }
   if (sheetName === "Feuil3") {
-    return ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "L"];
+    return ["A", "F", "G", "H", "I", "J", "L"];
   }
   if (sheetName === "Feuil5") {
-    return ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M"];
+    return ["C", "H", "I", "J", "K", "L", "M"];
   }
   if (sheetName === "Feuil6") {
     return ["B", "C", "D", "E", "F", "G"];
@@ -295,18 +295,10 @@ function getSheetFieldRequiredMessage(sheetName: string | undefined, column: She
   if (sheetName === "Feuil2") {
     if (column === "A") return "Veuillez renseigner le numéro du tronçon.";
     if (column === "B") return "Veuillez renseigner le numéro de section.";
-    if (column === "C") return "Veuillez renseigner le code de la voie.";
-    if (column === "D") return "Veuillez renseigner le nom de la voie.";
-    if (column === "E") return "Veuillez renseigner le lieu de départ.";
-    if (column === "F") return "Veuillez renseigner le lieu d'arrivée.";
-    if (column === "G") return "Veuillez renseigner la longueur en mètres.";
+    if (column === "C") return "Veuillez choisir la voie concernée.";
   }
   if (sheetName === "Feuil3") {
-    if (column === "A") return "Veuillez renseigner le code de la voie.";
-    if (column === "B") return "Veuillez renseigner le nom de la voie.";
-    if (column === "C") return "Veuillez renseigner le lieu de départ.";
-    if (column === "D") return "Veuillez renseigner le lieu d'arrivée.";
-    if (column === "E") return "Veuillez renseigner la longueur en mètres.";
+    if (column === "A") return "Veuillez choisir la voie à diagnostiquer.";
     if (column === "F") return "Veuillez renseigner la largeur minimale côté façade.";
     if (column === "G") return "Veuillez renseigner le type de revêtement.";
     if (column === "H") return "Veuillez renseigner l'état de la chaussée.";
@@ -315,13 +307,7 @@ function getSheetFieldRequiredMessage(sheetName: string | undefined, column: She
     if (column === "L") return "Veuillez renseigner l'intervention à prévoir.";
   }
   if (sheetName === "Feuil5") {
-    if (column === "A") return "Veuillez renseigner le numéro du tronçon.";
-    if (column === "B") return "Veuillez renseigner le numéro de section.";
-    if (column === "C") return "Veuillez renseigner le code de la voie.";
-    if (column === "D") return "Veuillez renseigner le nom de la voie.";
-    if (column === "E") return "Veuillez renseigner le lieu de départ.";
-    if (column === "F") return "Veuillez renseigner le lieu d'arrivée.";
-    if (column === "G") return "Veuillez renseigner la longueur en mètres.";
+    if (column === "C") return "Veuillez choisir la voie à compléter.";
     if (column === "H") return "Veuillez renseigner la largeur minimale côté façade.";
     if (column === "I") return "Veuillez renseigner le type de revêtement.";
     if (column === "J") return "Veuillez renseigner l'état de la chaussée.";
@@ -334,7 +320,7 @@ function getSheetFieldRequiredMessage(sheetName: string | undefined, column: She
     if (column === "C") return "Veuillez renseigner le code de la voie.";
     if (column === "D") return "Veuillez renseigner le linéaire en mètres.";
     if (column === "E") return "Veuillez renseigner le nom proposé.";
-    if (column === "F") return "Veuillez renseigner l'itinéraire.";
+    if (column === "F") return "Veuillez renseigner le début et la fin de la voie.";
     if (column === "G") return "Veuillez renseigner la justification.";
   }
   if (sheetName === "Feuil7") {
@@ -407,22 +393,12 @@ function validateSheetDraft(
   }
 
   if (sheet.name === "Feuil5") {
-    const tronconNo = String(cells.A ?? "").trim();
-    const sectionNo = String(cells.B ?? "").trim();
     const numericColumns: Array<[SheetColumnKey, string, boolean]> = [
-      ["G", "La longueur doit être un nombre supérieur à 0.", true],
       ["H", "La largeur côté façade doit être un nombre supérieur à 0.", true],
       ["M", "La largeur des trottoirs doit être un nombre positif ou nul.", false],
       ["N", "La valeur du stationnement à gauche doit être un nombre positif ou nul.", false],
       ["O", "La valeur du stationnement à droite doit être un nombre positif ou nul.", false]
     ];
-
-    if (tronconNo && !/^[1-9][0-9]*$/.test(tronconNo)) {
-      setSheetFieldError(fieldErrors, "A", "Le numéro du tronçon doit être un nombre entier positif.");
-    }
-    if (sectionNo && !/^[1-9][0-9]*_[1-9][0-9]*$/.test(sectionNo)) {
-      setSheetFieldError(fieldErrors, "B", "Écrivez par exemple 1_1, 2_3 ou 6_1.");
-    }
 
     for (const [column, message, strictPositive] of numericColumns) {
       const rawValue = String(cells[column] ?? "").trim();
@@ -438,8 +414,12 @@ function validateSheetDraft(
 
   if (sheet.name === "Feuil6") {
     const linearM = parseNumberValue(cells.D);
+    const bounds = splitBoundsValue(cells.F);
     if (String(cells.D ?? "").trim() && (!Number.isFinite(linearM) || Number(linearM) <= 0)) {
       setSheetFieldError(fieldErrors, "D", "Le linéaire doit être un nombre supérieur à 0.");
+    }
+    if (!bounds.startLabel || !bounds.endLabel) {
+      setSheetFieldError(fieldErrors, "F", "Veuillez renseigner le début et la fin de la voie.");
     }
   }
 
@@ -672,7 +652,7 @@ function getSheetPrintSubtitle(sheetName: string) {
     return "Compléments techniques des sections : assainissement, largeur minimale, trottoirs et stationnement.";
   }
   if (sheetName === "Feuil6") {
-    return "Répertoire codifié central des voies : type, code, nom proposé, itinéraire et justification.";
+    return "Répertoire codifié central des voies : type, code, début, fin et justification.";
   }
   if (sheetName === "Feuil7") {
     return "Catalogue des dégradations, causes probables et informations utiles à la décision.";
@@ -769,6 +749,37 @@ function toSheetCellValue(value: string | number | null | undefined) {
   return String(value);
 }
 
+function splitBoundsValue(value: string | null | undefined) {
+  const text = String(value ?? "").trim();
+  if (!text) {
+    return { startLabel: "", endLabel: "" };
+  }
+  const itineraryMatch = text.match(/^(?:de\s+)?(.+?)\s+[aà]\s+(.+)$/i);
+  if (itineraryMatch) {
+    return {
+      startLabel: String(itineraryMatch[1] ?? "").trim(),
+      endLabel: String(itineraryMatch[2] ?? "").trim()
+    };
+  }
+  const slashMatch = text.match(/^(.+?)\s*\/\s*(.+)$/);
+  if (slashMatch) {
+    return {
+      startLabel: String(slashMatch[1] ?? "").trim(),
+      endLabel: String(slashMatch[2] ?? "").trim()
+    };
+  }
+  return { startLabel: text, endLabel: "" };
+}
+
+function formatBoundsValue(startLabel: string | null | undefined, endLabel: string | null | undefined) {
+  const start = String(startLabel ?? "").trim();
+  const end = String(endLabel ?? "").trim();
+  if (start && end) {
+    return `${start} à ${end}`;
+  }
+  return start || end;
+}
+
 function resolveRoadFromFeuil2Row(row: SheetRow, roads: RoadCatalogItem[]) {
   const codeKey = normalizeRoadCompareKey(row.C);
   const designationKey = normalizeRoadCompareKey(row.D);
@@ -807,15 +818,14 @@ function resolveRoadFromFeuil2Row(row: SheetRow, roads: RoadCatalogItem[]) {
 function resolveRoadFromFeuil6Row(row: SheetRow, roads: RoadCatalogItem[]) {
   const codeKey = normalizeRoadCompareKey(row.C);
   const designationKey = normalizeRoadCompareKey(row.E);
-  const itineraryKey = normalizeRoadCompareKey(row.F);
+  const bounds = splitBoundsValue(row.F);
+  const itineraryKey = normalizeRoadCompareKey(formatBoundsValue(bounds.startLabel, bounds.endLabel));
 
   return (
     roads.find((road) => {
       const roadCode = normalizeRoadCompareKey(road.roadCode);
       const roadDesignation = normalizeRoadCompareKey(road.designation);
-      const roadItinerary = normalizeRoadCompareKey(
-        road.startLabel && road.endLabel ? `${road.startLabel} à ${road.endLabel}` : road.itinerary
-      );
+      const roadItinerary = normalizeRoadCompareKey(formatBoundsValue(road.startLabel, road.endLabel) || road.itinerary);
 
       if (codeKey && roadCode === codeKey) {
         return true;
@@ -1027,6 +1037,8 @@ export default function App() {
   const [selectedDegradationId, setSelectedDegradationId] = useState<number | "">("");
   const [deflectionValue, setDeflectionValue] = useState("");
   const [askDrainage, setAskDrainage] = useState(true);
+  const [decisionFieldErrors, setDecisionFieldErrors] = useState<Record<string, string>>({});
+  const [decisionFormError, setDecisionFormError] = useState("");
   const [decisionResult, setDecisionResult] = useState<DecisionResult | null>(null);
   const [degradationSearch, setDegradationSearch] = useState("");
   const [historyRows, setHistoryRows] = useState<DecisionHistoryItem[]>([]);
@@ -1297,6 +1309,7 @@ export default function App() {
           .includes(normalizedSearch);
       })
       .map((road) => {
+        const roadBounds = splitBoundsValue(road.itinerary || formatBoundsValue(road.startLabel, road.endLabel));
         const sourceRow =
           rows.find((row) => {
             const matchedRoad = resolveRoadFromFeuil6Row(row, [road]);
@@ -1310,6 +1323,8 @@ export default function App() {
           linearM: road.lengthM,
           proposedName: road.designation,
           itinerary: road.itinerary || (road.startLabel && road.endLabel ? `${road.startLabel} à ${road.endLabel}` : ""),
+          startLabel: road.startLabel || roadBounds.startLabel,
+          endLabel: road.endLabel || roadBounds.endLabel,
           justification: road.justification,
           linkedRoad: road
         };
@@ -1345,10 +1360,6 @@ export default function App() {
 
     return [...grouped.values()].sort((a, b) => compareSapCodes(a.sapCode, b.sapCode));
   }, [feuil6DirectoryRows, feuil6SapFilter]);
-  const feuil6LinkedCount = useMemo(
-    () => feuil6DirectoryRows.filter((item) => item.sourceRow).length,
-    [feuil6DirectoryRows]
-  );
   const feuil3Profiles = useMemo(() => {
     if (activeSheetName !== "Feuil3") {
       return [];
@@ -1973,12 +1984,36 @@ export default function App() {
 
       if (sheetName === "Feuil6") {
         const codeKey = normalizeRoadCompareKey(cells.C);
-        const duplicateRoad = allRoads.find(
+        const designationKey = normalizeRoadCompareKey(cells.E);
+        const bounds = splitBoundsValue(cells.F);
+        const itineraryKey = normalizeRoadCompareKey(formatBoundsValue(bounds.startLabel, bounds.endLabel));
+
+        const duplicateByCode = allRoads.find(
           (road) => codeKey && normalizeRoadCompareKey(road.roadCode) === codeKey && (!draftRoad || road.id !== draftRoad.id)
         );
-        if (duplicateRoad) {
-          fieldErrors.C = `Ce code de voie existe déjà dans le répertoire (${toDisplay(duplicateRoad.roadCode)}).`;
+        if (duplicateByCode) {
+          fieldErrors.C = `Ce code de voie existe déjà dans le répertoire (${toDisplay(duplicateByCode.roadCode)}).`;
           return { fieldErrors, formError: fieldErrors.C };
+        }
+
+        const duplicateByDesignation = allRoads.find(
+          (road) =>
+            designationKey &&
+            normalizeRoadCompareKey(road.designation) === designationKey &&
+            (!draftRoad || road.id !== draftRoad.id)
+        );
+        if (duplicateByDesignation) {
+          fieldErrors.E = `Cette voie existe déjà dans le répertoire (${toDisplay(duplicateByDesignation.designation)}).`;
+          return { fieldErrors, formError: fieldErrors.E };
+        }
+
+        const duplicateByItinerary = allRoads.find((road) => {
+          const roadItinerary = normalizeRoadCompareKey(formatBoundsValue(road.startLabel, road.endLabel) || road.itinerary);
+          return itineraryKey && roadItinerary === itineraryKey && (!draftRoad || road.id !== draftRoad.id);
+        });
+        if (duplicateByItinerary) {
+          fieldErrors.F = `Cette combinaison début / fin existe déjà dans le répertoire (${toDisplay(duplicateByItinerary.designation)}).`;
+          return { fieldErrors, formError: fieldErrors.F };
         }
       }
 
@@ -2024,8 +2059,7 @@ export default function App() {
           [column]: value
         };
 
-        const isRoadSelectorField =
-          (activeSheetName === "Feuil2" && (column === "C" || column === "D")) ||
+      const isRoadSelectorField =
           (activeSheetName === "Feuil3" && (column === "A" || column === "B")) ||
           (activeSheetName === "Feuil5" && (column === "C" || column === "D")) ||
           (activeSheetName === "Feuil6" && (column === "C" || column === "E"));
@@ -2141,6 +2175,38 @@ export default function App() {
     setMaintenanceFormError("");
     setError("");
   }, []);
+
+  const clearDecisionFieldError = useCallback((field: string) => {
+    setDecisionFieldErrors((current) => {
+      if (!current[field]) {
+        return current;
+      }
+      const next = { ...current };
+      delete next[field];
+      return next;
+    });
+    setDecisionFormError("");
+  }, []);
+
+  const validateDecisionForm = useCallback(() => {
+    const nextErrors: Record<string, string> = {};
+    const rawDeflection = String(deflectionValue ?? "").trim();
+    const parsedDeflection = rawDeflection ? Number(deflectionValue) : null;
+
+    if (!selectedRoadId) {
+      nextErrors.roadId = "Veuillez choisir une voie.";
+    }
+    if (!selectedDegradationId) {
+      nextErrors.degradationId = "Veuillez choisir une dégradation.";
+    }
+    if (rawDeflection && !Number.isFinite(parsedDeflection)) {
+      nextErrors.deflectionValue = "Veuillez saisir un nombre valide pour la déflexion.";
+    }
+
+    setDecisionFieldErrors(nextErrors);
+    setDecisionFormError(Object.values(nextErrors)[0] || "");
+    return nextErrors;
+  }, [deflectionValue, selectedDegradationId, selectedRoadId]);
 
   const validateMeasurementCampaignForm = useCallback(() => {
     const nextErrors: Record<string, string> = {};
@@ -2822,13 +2888,9 @@ export default function App() {
   }
 
   async function handleEvaluateDecision() {
-    if (!selectedRoadId) {
-      setError("Sélectionne une voie.");
-      scrollPageTop();
-      return;
-    }
-    if (!selectedDegradationId) {
-      setError("Sélectionne une dégradation.");
+    const fieldErrors = validateDecisionForm();
+    if (Object.keys(fieldErrors).length > 0) {
+      setError(Object.values(fieldErrors)[0] || "Veuillez corriger les champs obligatoires.");
       scrollPageTop();
       return;
     }
@@ -2846,6 +2908,8 @@ export default function App() {
       const result = await padApi.evaluateDecision(payload);
       setDecisionResult(result);
       await Promise.all([refreshStatus(), loadHistory(), loadDashboardSummary()]);
+      setDecisionFieldErrors({});
+      setDecisionFormError("");
       setError("");
       setNotice("Décision calculée et enregistrée dans l'historique.");
       scrollPageTop();
@@ -2871,6 +2935,7 @@ export default function App() {
       setSelectedRoadId(campaign.roadId);
     }
     setError("");
+    clearDecisionFieldError("roadId");
   }
 
   function handleUseMeasurementCampaign(campaign: MeasurementCampaignItem) {
@@ -2880,6 +2945,7 @@ export default function App() {
     if (campaign.sapCode) {
       setSelectedSap(campaign.sapCode);
     }
+    clearDecisionFieldError("roadId");
     setSelectedMeasurementCampaignKey(campaign.campaignKey);
     setDecisionResult(null);
     setActiveView("decision");
@@ -2896,7 +2962,9 @@ export default function App() {
     }
     if (measurement.deflectionDc != null) {
       setDeflectionValue(String(measurement.deflectionDc));
+      clearDecisionFieldError("deflectionValue");
     }
+    clearDecisionFieldError("roadId");
     setDecisionResult(null);
     setActiveView("decision");
     setNotice(`Mesure PK ${measurement.pkLabel || "-"} injectée dans D pour l'analyse.`);
@@ -4215,51 +4283,74 @@ export default function App() {
           <h2>Aide à la décision maintenance</h2>
           <p className="muted">Sélectionne une voie, une dégradation et la valeur de déflexion (optionnelle).</p>
 
-          <label htmlFor="sap">Secteur SAP</label>
-          <select id="sap" value={selectedSap} onChange={(event) => setSelectedSap(event.target.value)}>
-            <option value="">Tous les secteurs</option>
-            {sapSectors.map((sector) => (
-              <option key={sector.code} value={sector.code}>
-                {sector.code}
-              </option>
-            ))}
-          </select>
+          {decisionFormError ? <p className="modal-feedback modal-feedback--error">{decisionFormError}</p> : null}
 
-          <label htmlFor="road-search">Recherche voie</label>
-          <input
-            id="road-search"
-            value={roadSearch}
-            onChange={(event) => setRoadSearch(event.target.value)}
-            placeholder="Code ou désignation"
-          />
+          <div className="cell-field">
+            <label htmlFor="sap">Secteur SAP</label>
+            <select id="sap" value={selectedSap} onChange={(event) => setSelectedSap(event.target.value)}>
+              <option value="">Tous les secteurs</option>
+              {sapSectors.map((sector) => (
+                <option key={sector.code} value={sector.code}>
+                  {sector.code}
+                </option>
+              ))}
+            </select>
+            <p className="field-help">Filtre les voies proposées dans la liste ci-dessous.</p>
+          </div>
 
-          <label htmlFor="road">Voie</label>
-          <select
-            id="road"
-            value={selectedRoadId}
-            onChange={(event) => setSelectedRoadId(event.target.value ? Number(event.target.value) : "")}
-          >
-            <option value="">Sélectionner une voie</option>
-            {roads.map((road) => (
-              <option key={road.id} value={road.id}>
-                {road.sapCode || "SAP?"} | {road.roadCode} | {road.designation}
-              </option>
-            ))}
-          </select>
+          <div className="cell-field">
+            <label htmlFor="road-search">Recherche voie</label>
+            <input
+              id="road-search"
+              value={roadSearch}
+              onChange={(event) => setRoadSearch(event.target.value)}
+              placeholder="Code ou désignation"
+            />
+            <p className="field-help">Recherche rapide par code ou par nom de voie.</p>
+          </div>
 
-          <label htmlFor="measurement-campaign">Campagne Feuil1</label>
-          <select
-            id="measurement-campaign"
-            value={selectedMeasurementCampaignKey}
-            onChange={(event) => handleDecisionCampaignSelection(event.target.value)}
-          >
-            <option value="">Sélectionner une campagne</option>
-            {decisionMeasurementCampaigns.map((campaign) => (
-              <option key={campaign.campaignKey} value={campaign.campaignKey}>
-                {campaign.roadCode || "Voie"} | {campaign.designation} | {campaign.measurementDate || "Sans date"}
-              </option>
-            ))}
-          </select>
+          <div className={`cell-field${decisionFieldErrors.roadId ? " cell-field--error" : ""}`}>
+            <label htmlFor="road">
+              Voie <span className="field-label__required"> *</span>
+            </label>
+            <select
+              id="road"
+              className={decisionFieldErrors.roadId ? "cell-field--error" : undefined}
+              value={selectedRoadId}
+              onChange={(event) => {
+                setSelectedRoadId(event.target.value ? Number(event.target.value) : "");
+                clearDecisionFieldError("roadId");
+              }}
+            >
+              <option value="">Sélectionner une voie</option>
+              {roads.map((road) => (
+                <option key={road.id} value={road.id}>
+                  {road.sapCode || "SAP?"} | {road.roadCode} | {road.designation}
+                </option>
+              ))}
+            </select>
+            {decisionFieldErrors.roadId ? <p className="field-error">{decisionFieldErrors.roadId}</p> : null}
+            <p className="field-help">Choisissez la voie exacte sur laquelle vous voulez calculer la décision.</p>
+          </div>
+
+          <div className="cell-field">
+            <label htmlFor="measurement-campaign">Campagne</label>
+            <select
+              id="measurement-campaign"
+              value={selectedMeasurementCampaignKey}
+              onChange={(event) => handleDecisionCampaignSelection(event.target.value)}
+            >
+              <option value="">Sélectionner une campagne</option>
+              {decisionMeasurementCampaigns.map((campaign) => (
+                <option key={campaign.campaignKey} value={campaign.campaignKey}>
+                  {campaign.roadCode || "Voie"} | {campaign.designation} | {campaign.measurementDate || "Sans date"}
+                </option>
+              ))}
+            </select>
+            <p className="field-help">
+              Optionnel. Si une campagne existe, vous pouvez réutiliser directement une valeur de déflexion mesurée.
+            </p>
+          </div>
 
           {selectedMeasurementCampaign ? (
             <div className="card measurement-card">
@@ -4348,28 +4439,46 @@ export default function App() {
             </div>
           ) : null}
 
-          <label className="field-label--spaced" htmlFor="degradation">Dégradation</label>
-          <select
-            id="degradation"
-            value={selectedDegradationId}
-            onChange={(event) => setSelectedDegradationId(event.target.value ? Number(event.target.value) : "")}
-          >
-            <option value="">Sélectionner une dégradation</option>
-            {degradations.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.name}
-              </option>
-            ))}
-          </select>
+          <div className={`cell-field${decisionFieldErrors.degradationId ? " cell-field--error" : ""}`}>
+            <label className="field-label--spaced" htmlFor="degradation">
+              Dégradation <span className="field-label__required"> *</span>
+            </label>
+            <select
+              id="degradation"
+              className={decisionFieldErrors.degradationId ? "cell-field--error" : undefined}
+              value={selectedDegradationId}
+              onChange={(event) => {
+                setSelectedDegradationId(event.target.value ? Number(event.target.value) : "");
+                clearDecisionFieldError("degradationId");
+              }}
+            >
+              <option value="">Sélectionner une dégradation</option>
+              {degradations.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
+            {decisionFieldErrors.degradationId ? <p className="field-error">{decisionFieldErrors.degradationId}</p> : null}
+            <p className="field-help">Choisissez la dégradation observée sur la voie.</p>
+          </div>
 
-          <label htmlFor="deflection">Valeur de déflexion D</label>
-          <input
-            id="deflection"
-            type="number"
-            value={deflectionValue}
-            onChange={(event) => setDeflectionValue(event.target.value)}
-            placeholder="Ex: 80"
-          />
+          <div className={`cell-field${decisionFieldErrors.deflectionValue ? " cell-field--error" : ""}`}>
+            <label htmlFor="deflection">Valeur de déflexion D</label>
+            <input
+              id="deflection"
+              type="number"
+              className={decisionFieldErrors.deflectionValue ? "cell-field--error" : undefined}
+              value={deflectionValue}
+              onChange={(event) => {
+                setDeflectionValue(event.target.value);
+                clearDecisionFieldError("deflectionValue");
+              }}
+              placeholder="Ex: 80"
+            />
+            {decisionFieldErrors.deflectionValue ? <p className="field-error">{decisionFieldErrors.deflectionValue}</p> : null}
+            <p className="field-help">Optionnel. Laissez vide si vous voulez analyser sans valeur D.</p>
+          </div>
 
           <label className="checkbox-row" htmlFor="ask-drainage">
             <input
@@ -6316,10 +6425,629 @@ export default function App() {
           : activeSheet.title;
     const editorHelp =
       activeSheet.name === "Feuil2"
-        ? "Ajoute ou modifie ici la section maître utilisée dans tout le réseau. Les champs marqués d'un * sont obligatoires."
+        ? "Choisissez d'abord une voie existante. Les informations d'identité sont reprises automatiquement ; vous ne saisissez ici que les informations de section."
         : activeSheet.name === "Feuil6"
-          ? "Ajoute ou modifie ici la voie maître utilisée dans tout le système. Les champs marqués d'un * sont obligatoires."
+          ? "Ajoute ou modifie ici la voie maître utilisée dans tout le système. Renseignez séparément le début et la fin de la voie."
+          : activeSheet.name === "Feuil3"
+            ? "Choisissez d'abord une voie existante. Les informations d'identité sont reprises automatiquement ; vous ne saisissez ici que le diagnostic technique."
+          : activeSheet.name === "Feuil5"
+            ? "Choisissez d'abord une voie existante. Les informations d'identité sont reprises automatiquement ; vous ne saisissez ici que les compléments utiles."
           : "Les champs marqués d'un * sont obligatoires.";
+
+    const renderEditorField = (column: SheetColumnKey) => {
+      const suggestions = getSheetFieldSuggestions(activeSheet?.name, column);
+      const inputId = `cell-${column}`;
+      const datalistId = suggestions.length > 0 ? `cell-suggestions-${activeSheet?.name ?? "sheet"}-${column}` : undefined;
+      const useTextarea =
+        (activeSheet?.name === "Feuil3" && ["H", "J", "L"].includes(column)) ||
+        (activeSheet?.name === "Feuil5" && column === "P");
+      const fieldPlaceholder = getSheetFieldPlaceholder(activeSheet?.name, column) || suggestions[0] || "Entrez une valeur";
+      const fieldHelp = getSheetFieldHelpText(activeSheet?.name, column);
+
+      const commonProps = {
+        id: inputId,
+        value: draftCells[column] ?? "",
+        required: isSheetFieldRequired(activeSheet.name, column),
+        onChange: (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+          handleDraftCellChange(column, event.target.value);
+        }
+      };
+
+      return (
+        <div className={`cell-field${draftFieldErrors[column] ? " cell-field--error" : ""}`} key={column}>
+          <label htmlFor={inputId}>
+            {getColumnLabel(activeSheet, column)}
+            {isSheetFieldRequired(activeSheet.name, column) ? <span className="field-label__required"> *</span> : null}
+          </label>
+          {useTextarea ? (
+            <textarea
+              {...commonProps}
+              className={`input-textarea${draftFieldErrors[column] ? " cell-field--error" : ""}`}
+              rows={column === "L" ? 4 : 3}
+              placeholder={fieldPlaceholder}
+            />
+          ) : (
+            <>
+              <input
+                {...commonProps}
+                className={draftFieldErrors[column] ? "cell-field--error" : undefined}
+                list={datalistId}
+                placeholder={fieldPlaceholder}
+              />
+              {datalistId ? (
+                <datalist id={datalistId}>
+                  {suggestions.map((item) => (
+                    <option key={`${column}-${item}`} value={item} />
+                  ))}
+                </datalist>
+              ) : null}
+            </>
+          )}
+          {draftFieldErrors[column] ? <p className="field-error">{draftFieldErrors[column]}</p> : null}
+          {fieldHelp ? <p className="field-help">{fieldHelp}</p> : null}
+        </div>
+      );
+    };
+
+    if (activeSheet.name === "Feuil2") {
+      const selectedRoad = resolveDraftRoadMatch("Feuil2", draftCells);
+      const selectedRoadId = selectedRoad?.id ?? "";
+
+      return (
+        <section ref={sheetEditorRef} className="panel editor-panel editor-panel--sheet">
+          <h2>{editorTitle}</h2>
+          <p className="field-help">{editorHelp}</p>
+          {draftFormError ? <p className="modal-feedback modal-feedback--error">{draftFormError}</p> : null}
+
+          <div className={`cell-field${draftFieldErrors.C ? " cell-field--error" : ""}`}>
+            <label htmlFor="feuil2-road-selector">
+              Voie concernée <span className="field-label__required"> *</span>
+            </label>
+            <select
+              id="feuil2-road-selector"
+              className={draftFieldErrors.C ? "cell-field--error" : undefined}
+              value={selectedRoadId}
+              onChange={(event) => {
+                const nextRoadId = event.target.value ? Number(event.target.value) : 0;
+                clearDraftFieldError("C");
+                setDraftFormError("");
+                setDraftCells((prev) => {
+                  if (!nextRoadId) {
+                    return {
+                      ...prev,
+                      A: "",
+                      B: "",
+                      C: "",
+                      D: "",
+                      E: "",
+                      F: "",
+                      G: ""
+                    };
+                  }
+                  const road = allRoads.find((item) => item.id === nextRoadId);
+                  if (!road) {
+                    return prev;
+                  }
+                  return autofillDraftFromRoad(
+                    "Feuil2",
+                    {
+                      ...prev,
+                      C: road.roadCode,
+                      D: road.designation
+                    },
+                    road
+                  );
+                });
+              }}
+            >
+              <option value="">Choisir une voie existante</option>
+              {allRoads.map((road) => (
+                <option key={`feuil2-road-${road.id}`} value={road.id}>
+                  {road.sapCode || "SAP?"} | {road.roadCode} | {road.designation}
+                </option>
+              ))}
+            </select>
+            {draftFieldErrors.C ? <p className="field-error">{draftFieldErrors.C}</p> : null}
+            <p className="field-help">
+              Choisissez une voie déjà présente dans le référentiel. Le code, la désignation, les bornes et la
+              longueur sont repris automatiquement.
+            </p>
+          </div>
+
+          {selectedRoad || draftCells.C || draftCells.D ? (
+            <div className="card card--spaced feuil5-identity-card">
+              <h3>Informations reprises automatiquement</h3>
+              <div className="feuil5-identity-grid">
+                <div className="feuil5-identity-item">
+                  <span>SAP</span>
+                  <strong>{toDisplay(selectedRoad?.sapCode || "")}</strong>
+                </div>
+                <div className="feuil5-identity-item">
+                  <span>Voie</span>
+                  <strong>{toDisplay(draftCells.C)}</strong>
+                </div>
+                <div className="feuil5-identity-item feuil5-identity-item--wide">
+                  <span>Désignation</span>
+                  <strong>{toDisplay(draftCells.D)}</strong>
+                </div>
+                <div className="feuil5-identity-item feuil5-identity-item--wide">
+                  <span>Début / fin</span>
+                  <strong>{`${toDisplay(draftCells.E)} / ${toDisplay(draftCells.F)}`}</strong>
+                </div>
+                <div className="feuil5-identity-item">
+                  <span>Longueur (m)</span>
+                  <strong>{toDisplay(draftCells.G)}</strong>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          <div className="cells-grid">
+            {(["A", "B"] as SheetColumnKey[]).map((column) => renderEditorField(column))}
+          </div>
+
+          <div className="editor-actions">
+            <button className="primary" type="button" onClick={handleSaveRow} disabled={isBusy || !activeSheet}>
+              {editingRowId ? "Enregistrer" : "Ajouter"}
+            </button>
+            <button className="row-action" type="button" onClick={handleStartNewRow} disabled={isBusy}>
+              Nouvelle ligne
+            </button>
+            <button
+              className="row-action row-action--danger"
+              type="button"
+              onClick={() => handleDeleteRow()}
+              disabled={isBusy || !editingRowId}
+            >
+              Supprimer
+            </button>
+          </div>
+        </section>
+      );
+    }
+
+    if (activeSheet.name === "Feuil3") {
+      const selectedRoad = resolveDraftRoadMatch("Feuil3", draftCells);
+      const selectedRoadId = selectedRoad?.id ?? "";
+
+      return (
+        <section ref={sheetEditorRef} className="panel editor-panel editor-panel--sheet">
+          <h2>{editorTitle}</h2>
+          <p className="field-help">{editorHelp}</p>
+          {draftFormError ? <p className="modal-feedback modal-feedback--error">{draftFormError}</p> : null}
+
+          <div className={`cell-field${draftFieldErrors.A ? " cell-field--error" : ""}`}>
+            <label htmlFor="feuil3-road-selector">
+              Voie concernée <span className="field-label__required"> *</span>
+            </label>
+            <select
+              id="feuil3-road-selector"
+              className={draftFieldErrors.A ? "cell-field--error" : undefined}
+              value={selectedRoadId}
+              onChange={(event) => {
+                const nextRoadId = event.target.value ? Number(event.target.value) : 0;
+                clearDraftFieldError("A");
+                setDraftFormError("");
+                setDraftCells((prev) => {
+                  if (!nextRoadId) {
+                    return {
+                      ...prev,
+                      A: "",
+                      B: "",
+                      C: "",
+                      D: "",
+                      E: ""
+                    };
+                  }
+                  const road = allRoads.find((item) => item.id === nextRoadId);
+                  if (!road) {
+                    return prev;
+                  }
+                  return autofillDraftFromRoad(
+                    "Feuil3",
+                    {
+                      ...prev,
+                      A: road.roadCode,
+                      B: road.designation
+                    },
+                    road
+                  );
+                });
+              }}
+            >
+              <option value="">Choisir une voie existante</option>
+              {allRoads.map((road) => (
+                <option key={`feuil3-road-${road.id}`} value={road.id}>
+                  {road.sapCode || "SAP?"} | {road.roadCode} | {road.designation}
+                </option>
+              ))}
+            </select>
+            {draftFieldErrors.A ? <p className="field-error">{draftFieldErrors.A}</p> : null}
+            <p className="field-help">
+              Choisissez une voie déjà présente dans le référentiel. La désignation, les bornes et la longueur sont
+              reprises automatiquement.
+            </p>
+          </div>
+
+          {selectedRoad || draftCells.A || draftCells.B ? (
+            <div className="card card--spaced feuil5-identity-card">
+              <h3>Informations reprises automatiquement</h3>
+              <div className="feuil5-identity-grid">
+                <div className="feuil5-identity-item">
+                  <span>SAP</span>
+                  <strong>{toDisplay(selectedRoad?.sapCode || "")}</strong>
+                </div>
+                <div className="feuil5-identity-item">
+                  <span>Voie</span>
+                  <strong>{toDisplay(draftCells.A)}</strong>
+                </div>
+                <div className="feuil5-identity-item feuil5-identity-item--wide">
+                  <span>Désignation</span>
+                  <strong>{toDisplay(draftCells.B)}</strong>
+                </div>
+                <div className="feuil5-identity-item feuil5-identity-item--wide">
+                  <span>Début / fin</span>
+                  <strong>{`${toDisplay(draftCells.C)} / ${toDisplay(draftCells.D)}`}</strong>
+                </div>
+                <div className="feuil5-identity-item">
+                  <span>Longueur (m)</span>
+                  <strong>{toDisplay(draftCells.E)}</strong>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          <div className="cells-grid">
+            {(["F", "G", "H", "I", "J", "K", "L"] as SheetColumnKey[]).map((column) => renderEditorField(column))}
+          </div>
+
+          <div className="editor-actions">
+            <button className="primary" type="button" onClick={handleSaveRow} disabled={isBusy || !activeSheet}>
+              {editingRowId ? "Enregistrer" : "Ajouter"}
+            </button>
+            <button className="row-action" type="button" onClick={handleStartNewRow} disabled={isBusy}>
+              Nouvelle ligne
+            </button>
+            <button
+              className="row-action row-action--danger"
+              type="button"
+              onClick={() => handleDeleteRow()}
+              disabled={isBusy || !editingRowId}
+            >
+              Supprimer
+            </button>
+          </div>
+        </section>
+      );
+    }
+
+    if (activeSheet.name === "Feuil5") {
+      const selectedRoad = resolveDraftRoadMatch("Feuil5", draftCells);
+      const selectedRoadId = selectedRoad?.id ?? "";
+
+      return (
+        <section ref={sheetEditorRef} className="panel editor-panel editor-panel--sheet">
+          <h2>{editorTitle}</h2>
+          <p className="field-help">{editorHelp}</p>
+          {draftFormError ? <p className="modal-feedback modal-feedback--error">{draftFormError}</p> : null}
+
+          <div className={`cell-field${draftFieldErrors.C || draftFieldErrors.D ? " cell-field--error" : ""}`}>
+            <label htmlFor="feuil5-road-selector">
+              Voie concernée <span className="field-label__required"> *</span>
+            </label>
+            <select
+              id="feuil5-road-selector"
+              className={draftFieldErrors.C || draftFieldErrors.D ? "cell-field--error" : undefined}
+              value={selectedRoadId}
+              onChange={(event) => {
+                const nextRoadId = event.target.value ? Number(event.target.value) : 0;
+                clearDraftFieldError("C");
+                clearDraftFieldError("D");
+                setDraftFormError("");
+                setDraftCells((prev) => {
+                  if (!nextRoadId) {
+                    return {
+                      ...prev,
+                      A: "",
+                      B: "",
+                      C: "",
+                      D: "",
+                      E: "",
+                      F: "",
+                      G: ""
+                    };
+                  }
+                  const road = allRoads.find((item) => item.id === nextRoadId);
+                  if (!road) {
+                    return prev;
+                  }
+                  return autofillDraftFromRoad(
+                    "Feuil5",
+                    {
+                      ...prev,
+                      C: road.roadCode,
+                      D: road.designation
+                    },
+                    road
+                  );
+                });
+              }}
+            >
+              <option value="">Choisir une voie existante</option>
+              {allRoads.map((road) => (
+                <option key={`feuil5-road-${road.id}`} value={road.id}>
+                  {road.sapCode || "SAP?"} | {road.roadCode} | {road.designation}
+                </option>
+              ))}
+            </select>
+            {draftFieldErrors.C || draftFieldErrors.D ? (
+              <p className="field-error">{draftFieldErrors.C || draftFieldErrors.D}</p>
+            ) : null}
+            <p className="field-help">
+              Choisissez une voie déjà présente dans le référentiel. Le tronçon, la section, les bornes et la longueur
+              sont repris automatiquement.
+            </p>
+          </div>
+
+          {selectedRoad || draftCells.C || draftCells.D ? (
+            <div className="card card--spaced feuil5-identity-card">
+              <h3>Informations reprises automatiquement</h3>
+              <div className="feuil5-identity-grid">
+                <div className="feuil5-identity-item">
+                  <span>SAP</span>
+                  <strong>{toDisplay(selectedRoad?.sapCode || "")}</strong>
+                </div>
+                <div className="feuil5-identity-item">
+                  <span>N° tronçon</span>
+                  <strong>{toDisplay(draftCells.A)}</strong>
+                </div>
+                <div className="feuil5-identity-item">
+                  <span>N° section</span>
+                  <strong>{toDisplay(draftCells.B)}</strong>
+                </div>
+                <div className="feuil5-identity-item">
+                  <span>Voie</span>
+                  <strong>{toDisplay(draftCells.C)}</strong>
+                </div>
+                <div className="feuil5-identity-item feuil5-identity-item--wide">
+                  <span>Désignation</span>
+                  <strong>{toDisplay(draftCells.D)}</strong>
+                </div>
+                <div className="feuil5-identity-item feuil5-identity-item--wide">
+                  <span>Début / fin</span>
+                  <strong>{`${toDisplay(draftCells.E)} / ${toDisplay(draftCells.F)}`}</strong>
+                </div>
+                <div className="feuil5-identity-item">
+                  <span>Longueur (m)</span>
+                  <strong>{toDisplay(draftCells.G)}</strong>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          <div className="cells-grid">
+            {(["H", "I", "J", "K", "L", "M", "N", "O", "P"] as SheetColumnKey[]).map((column) => renderEditorField(column))}
+          </div>
+
+          <div className="editor-actions">
+            <button className="primary" type="button" onClick={handleSaveRow} disabled={isBusy || !activeSheet}>
+              {editingRowId ? "Enregistrer" : "Ajouter"}
+            </button>
+            <button className="row-action" type="button" onClick={handleStartNewRow} disabled={isBusy}>
+              Nouvelle ligne
+            </button>
+            <button
+              className="row-action row-action--danger"
+              type="button"
+              onClick={() => handleDeleteRow()}
+              disabled={isBusy || !editingRowId}
+            >
+              Supprimer
+            </button>
+          </div>
+        </section>
+      );
+    }
+
+    if (activeSheet.name === "Feuil6") {
+      const bounds = splitBoundsValue(draftCells.F);
+      const startSuggestions = uniqueValues(allRoads.map((item) => item.startLabel)).filter(Boolean);
+      const endSuggestions = uniqueValues(allRoads.map((item) => item.endLabel)).filter(Boolean);
+      const startListId = startSuggestions.length > 0 ? "feuil6-start-suggestions" : undefined;
+      const endListId = endSuggestions.length > 0 ? "feuil6-end-suggestions" : undefined;
+
+      const updateFeuil6Bounds = (part: "start" | "end", value: string) => {
+        clearDraftFieldError("F");
+        setDraftFormError("");
+        setDraftCells((prev) => {
+          const currentBounds = splitBoundsValue(prev.F);
+          const nextStart = part === "start" ? value : currentBounds.startLabel;
+          const nextEnd = part === "end" ? value : currentBounds.endLabel;
+          return {
+            ...prev,
+            F: formatBoundsValue(nextStart, nextEnd)
+          };
+        });
+      };
+
+      return (
+        <section ref={sheetEditorRef} className="panel editor-panel editor-panel--sheet">
+          <h2>{editorTitle}</h2>
+          <p className="field-help">{editorHelp}</p>
+          {draftFormError ? <p className="modal-feedback modal-feedback--error">{draftFormError}</p> : null}
+
+          <div className="cells-grid">
+            {(["B", "C", "D", "E"] as SheetColumnKey[]).map((column) => renderEditorField(column))}
+
+            <div className={`cell-field${draftFieldErrors.F ? " cell-field--error" : ""}`}>
+              <label htmlFor="feuil6-start-label">
+                Début <span className="field-label__required"> *</span>
+              </label>
+              <input
+                id="feuil6-start-label"
+                value={bounds.startLabel}
+                onChange={(event) => updateFeuil6Bounds("start", event.target.value)}
+                className={draftFieldErrors.F ? "cell-field--error" : undefined}
+                list={startListId}
+                placeholder="Ex: Dangote"
+              />
+              {startListId ? (
+                <datalist id={startListId}>
+                  {startSuggestions.map((item) => (
+                    <option key={`feuil6-start-${item}`} value={item} />
+                  ))}
+                </datalist>
+              ) : null}
+              <p className="field-help">Nom du lieu où la voie commence.</p>
+            </div>
+
+            <div className={`cell-field${draftFieldErrors.F ? " cell-field--error" : ""}`}>
+              <label htmlFor="feuil6-end-label">
+                Fin <span className="field-label__required"> *</span>
+              </label>
+              <input
+                id="feuil6-end-label"
+                value={bounds.endLabel}
+                onChange={(event) => updateFeuil6Bounds("end", event.target.value)}
+                className={draftFieldErrors.F ? "cell-field--error" : undefined}
+                list={endListId}
+                placeholder="Ex: Quai 60"
+              />
+              {endListId ? (
+                <datalist id={endListId}>
+                  {endSuggestions.map((item) => (
+                    <option key={`feuil6-end-${item}`} value={item} />
+                  ))}
+                </datalist>
+              ) : null}
+              {draftFieldErrors.F ? <p className="field-error">{draftFieldErrors.F}</p> : null}
+              <p className="field-help">Nom du lieu où la voie se termine.</p>
+            </div>
+
+            {renderEditorField("G")}
+          </div>
+
+          <div className="editor-actions">
+            <button className="primary" type="button" onClick={handleSaveRow} disabled={isBusy || !activeSheet}>
+              {editingRowId ? "Enregistrer" : "Ajouter"}
+            </button>
+            <button className="row-action" type="button" onClick={handleStartNewRow} disabled={isBusy}>
+              Nouvelle ligne
+            </button>
+            <button
+              className="row-action row-action--danger"
+              type="button"
+              onClick={() => handleDeleteRow()}
+              disabled={isBusy || !editingRowId}
+            >
+              Supprimer
+            </button>
+          </div>
+        </section>
+      );
+    }
+
+    if (activeSheet.name === "Feuil4") {
+      return (
+        <section ref={sheetEditorRef} className="panel editor-panel editor-panel--sheet">
+          <h2>{editorTitle}</h2>
+          <p className="field-help">
+            Renseignez ici les lignes utiles au programme d'évaluation. Commencez par le libellé, puis la valeur
+            affichée et les résultats calculés si nécessaire.
+          </p>
+          {draftFormError ? <p className="modal-feedback modal-feedback--error">{draftFormError}</p> : null}
+
+          <div className="card card--spaced">
+            <h3>Identification de la ligne</h3>
+            <div className="cells-grid">
+              {(["A", "B"] as SheetColumnKey[]).map((column) => renderEditorField(column))}
+            </div>
+          </div>
+
+          <div className="card card--spaced">
+            <h3>Résultat de l'évaluation</h3>
+            <div className="cells-grid">
+              {(["C", "D", "F"] as SheetColumnKey[]).map((column) => renderEditorField(column))}
+            </div>
+          </div>
+
+          <div className="card card--spaced">
+            <h3>Zone et observation</h3>
+            <div className="cells-grid">
+              {(["E"] as SheetColumnKey[]).map((column) => renderEditorField(column))}
+            </div>
+          </div>
+
+          <div className="editor-actions">
+            <button className="primary" type="button" onClick={handleSaveRow} disabled={isBusy || !activeSheet}>
+              {editingRowId ? "Enregistrer" : "Ajouter"}
+            </button>
+            <button className="row-action" type="button" onClick={handleStartNewRow} disabled={isBusy}>
+              Nouvelle ligne
+            </button>
+            <button
+              className="row-action row-action--danger"
+              type="button"
+              onClick={() => handleDeleteRow()}
+              disabled={isBusy || !editingRowId}
+            >
+              Supprimer
+            </button>
+          </div>
+        </section>
+      );
+    }
+
+    if (activeSheet.name === "Feuil7") {
+      return (
+        <section ref={sheetEditorRef} className="panel editor-panel editor-panel--sheet">
+          <h2>{editorTitle}</h2>
+          <p className="field-help">
+            Renseignez ici les dégradations et leurs causes probables. Les trois premiers champs servent à identifier
+            clairement la dégradation dans le catalogue.
+          </p>
+          {draftFormError ? <p className="modal-feedback modal-feedback--error">{draftFormError}</p> : null}
+
+          <div className="card card--spaced">
+            <h3>Identification de la dégradation</h3>
+            <div className="cells-grid">
+              {(["A", "B", "C"] as SheetColumnKey[]).map((column) => renderEditorField(column))}
+            </div>
+          </div>
+
+          <div className="card card--spaced">
+            <h3>Classement</h3>
+            <div className="cells-grid">
+              {(["D", "E"] as SheetColumnKey[]).map((column) => renderEditorField(column))}
+            </div>
+          </div>
+
+          <div className="card card--spaced">
+            <h3>Observation et cause</h3>
+            <div className="cells-grid">
+              {(["F", "G"] as SheetColumnKey[]).map((column) => renderEditorField(column))}
+            </div>
+          </div>
+
+          <div className="editor-actions">
+            <button className="primary" type="button" onClick={handleSaveRow} disabled={isBusy || !activeSheet}>
+              {editingRowId ? "Enregistrer" : "Ajouter"}
+            </button>
+            <button className="row-action" type="button" onClick={handleStartNewRow} disabled={isBusy}>
+              Nouvelle ligne
+            </button>
+            <button
+              className="row-action row-action--danger"
+              type="button"
+              onClick={() => handleDeleteRow()}
+              disabled={isBusy || !editingRowId}
+            >
+              Supprimer
+            </button>
+          </div>
+        </section>
+      );
+    }
 
     return (
       <section ref={sheetEditorRef} className="panel editor-panel editor-panel--sheet">
@@ -6328,68 +7056,7 @@ export default function App() {
         {draftFormError ? <p className="modal-feedback modal-feedback--error">{draftFormError}</p> : null}
 
         <div className="cells-grid">
-          {editableColumns.map((column) => (
-            <div className={`cell-field${draftFieldErrors[column] ? " cell-field--error" : ""}`} key={column}>
-              <label htmlFor={`cell-${column}`}>
-                {getColumnLabel(activeSheet, column)}
-                {isSheetFieldRequired(activeSheet.name, column) ? <span className="field-label__required"> *</span> : null}
-              </label>
-              {(() => {
-                const suggestions = getSheetFieldSuggestions(activeSheet?.name, column);
-                const inputId = `cell-${column}`;
-                const datalistId = suggestions.length > 0 ? `cell-suggestions-${activeSheet?.name ?? "sheet"}-${column}` : undefined;
-                const useTextarea =
-                  (activeSheet?.name === "Feuil3" && ["H", "J", "L"].includes(column)) ||
-                  (activeSheet?.name === "Feuil5" && ["M", "N", "O", "P"].includes(column));
-                const fieldPlaceholder = getSheetFieldPlaceholder(activeSheet?.name, column) || suggestions[0] || "Entrez une valeur";
-                const fieldHelp = getSheetFieldHelpText(activeSheet?.name, column);
-
-                const commonProps = {
-                  id: inputId,
-                  value: draftCells[column] ?? "",
-                  required: isSheetFieldRequired(activeSheet.name, column),
-                  onChange: (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-                    handleDraftCellChange(column, event.target.value);
-                  }
-                };
-
-                if (useTextarea) {
-                  return (
-                    <>
-                      <textarea
-                        {...commonProps}
-                        className={`input-textarea${draftFieldErrors[column] ? " cell-field--error" : ""}`}
-                        rows={column === "L" ? 4 : 3}
-                        placeholder={fieldPlaceholder}
-                      />
-                      {draftFieldErrors[column] ? <p className="field-error">{draftFieldErrors[column]}</p> : null}
-                      {fieldHelp ? <p className="field-help">{fieldHelp}</p> : null}
-                    </>
-                  );
-                }
-
-                return (
-                  <>
-                    <input
-                      {...commonProps}
-                      className={draftFieldErrors[column] ? "cell-field--error" : undefined}
-                      list={datalistId}
-                      placeholder={fieldPlaceholder}
-                    />
-                    {draftFieldErrors[column] ? <p className="field-error">{draftFieldErrors[column]}</p> : null}
-                    {datalistId ? (
-                      <datalist id={datalistId}>
-                        {suggestions.map((item) => (
-                          <option key={`${column}-${item}`} value={item} />
-                        ))}
-                      </datalist>
-                    ) : null}
-                    {fieldHelp ? <p className="field-help">{fieldHelp}</p> : null}
-                  </>
-                );
-              })()}
-            </div>
-          ))}
+          {editableColumns.map((column) => renderEditorField(column))}
         </div>
 
         <div className="editor-actions">
@@ -6588,14 +7255,13 @@ export default function App() {
             <div>
               <h2>{activeSheet ? getSheetDisplayName(activeSheet.name) : "Voies"}</h2>
               <p className="muted">
-                Répertoire codifié central des voies: type, code, nom proposé, itinéraire et justification, réutilisés dans tout le système.
+                Répertoire codifié central des voies: type, code, début, fin et justification, réutilisés dans tout le système.
               </p>
             </div>
             <div className="sheet-header-actions">
               <div className="measurement-toolbar__meta">
                 <span className="pill">SAP: {feuil6Groups.length}</span>
                 <span className="pill">Voies: {totalRoads}</span>
-                <span className="pill">Lignes maîtres: {feuil6LinkedCount}</span>
                 <span className="pill">Linéaire: {formatMeasurementNumber(totalLinear)} m</span>
               </div>
               {renderSheetPrintButton(activeSheet ? getSheetDisplayName(activeSheet.name) : "Voies")}
@@ -6611,7 +7277,7 @@ export default function App() {
                     id="feuil6-search"
                     value={search}
                     onChange={(event) => setSearch(event.target.value)}
-                    placeholder="Code, nom proposé, itinéraire, justification"
+                    placeholder="Code, nom proposé, début, fin, justification"
                   />
                 </div>
                 <div className="feuil2-filter">
@@ -6640,12 +7306,12 @@ export default function App() {
                         <th className="col-actions">Action</th>
                         <th>N°</th>
                         <th>Type de voie</th>
-                          <th>Code</th>
+                        <th>Code</th>
                           <th>Linéaire (ml)</th>
                           <th>Noms proposés</th>
-                          <th>Itinéraires</th>
+                          <th>Début</th>
+                          <th>Fin</th>
                           <th>Justification</th>
-                          <th>Raccordement</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -6680,11 +7346,11 @@ export default function App() {
                                       : void handleCreateSourceRowAndEdit(
                                           "Feuil6",
                                           buildFeuil6SourcePayload(item),
-                                          `Ligne maître Feuil6 créée pour ${toDisplay(item.roadCode)} puis ouverte en édition.`
+                                          `Fiche Voies créée pour ${toDisplay(item.roadCode)} puis ouverte en édition.`
                                         )
                                   }
-                                  title={item.sourceRow ? "Éditer" : "Créer la ligne maître puis éditer"}
-                                  aria-label={item.sourceRow ? "Éditer" : "Créer la ligne maître puis éditer"}
+                                  title="Éditer"
+                                  aria-label="Éditer"
                                 >
                                   <Pencil size={15} aria-hidden="true" />
                                 </button>
@@ -6708,15 +7374,11 @@ export default function App() {
                           <td>{index + 1}</td>
                           <td>{toDisplay(item.roadType)}</td>
                           <td>{toDisplay(item.roadCode)}</td>
-                            <td>{formatMeasurementNumber(item.linearM)}</td>
+                          <td>{formatMeasurementNumber(item.linearM)}</td>
                             <td>{toDisplay(item.proposedName)}</td>
-                            <td>{toDisplay(item.itinerary)}</td>
+                            <td>{toDisplay(item.startLabel)}</td>
+                            <td>{toDisplay(item.endLabel)}</td>
                             <td>{toDisplay(item.justification)}</td>
-                            <td>
-                              <span className={`status-pill ${item.sourceRow ? "status-pill--ok" : "status-pill--warning"}`}>
-                                {item.sourceRow ? "Présente" : "À créer"}
-                              </span>
-                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -7234,7 +7896,9 @@ export default function App() {
           <div className="dashboard-card__header">
             <div>
               <h2>{activeSheet ? getSheetDisplayName(activeSheet.name) : "Feuille"}</h2>
-              <p className="muted">Impression du tableau de la feuille active, avec les colonnes et lignes actuellement affichées.</p>
+              <p className="muted">
+                {activeSheet ? getSheetPrintSubtitle(activeSheet.name) : "Impression du tableau de la feuille active."}
+              </p>
             </div>
             {renderSheetPrintButton(activeSheet ? getSheetDisplayName(activeSheet.name) : "Feuille")}
           </div>
@@ -7243,10 +7907,16 @@ export default function App() {
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Rechercher dans la feuille active"
+              placeholder={
+                activeSheet?.name === "Feuil4"
+                  ? "Rechercher libellé, valeur, intervention, zone"
+                  : activeSheet?.name === "Feuil7"
+                    ? "Rechercher référence, dégradation, cause"
+                    : "Rechercher dans la feuille active"
+              }
             />
             <span className="muted">
-              {activeSheet ? `${status?.sheetCounts?.[activeSheet.name] ?? 0} lignes en base` : "Aucune feuille"}
+              {activeSheet ? `${status?.sheetCounts?.[activeSheet.name] ?? 0} ligne(s) en base` : "Aucune feuille"}
             </span>
           </div>
 

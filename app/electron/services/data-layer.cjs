@@ -42,7 +42,7 @@ const SHEET_DEFINITIONS = [
   {
     name: "Feuil6",
     title: "Repertoire codifie des voies",
-    description: "Noms proposes et itineraires",
+    description: "Noms proposes et bornes",
     table: "sheet_feuil6",
     columns: ["A", "B", "C", "D", "E", "F", "G"]
   },
@@ -129,7 +129,7 @@ const SHEET_COLUMN_LABELS = {
     C: "Code voie",
     D: "Lineaire (ml)",
     E: "Nom propose",
-    F: "Itineraire",
+    F: "Debut / fin",
     G: "Justification"
   },
   Feuil7: {
