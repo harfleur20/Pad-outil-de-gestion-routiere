@@ -392,6 +392,10 @@ body {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.decision-card--with-bottom-gap {
+  margin-bottom: 12px;
+}
+
 .decision-hero {
   display: grid;
   gap: 10px;

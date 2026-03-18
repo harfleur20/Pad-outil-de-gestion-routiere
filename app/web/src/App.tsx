@@ -4848,7 +4848,7 @@ export default function App() {
                   </p>
                 </div>
 
-                <div className="card">
+                <div className="card decision-card--with-bottom-gap">
                   <h3>Voie analysée</h3>
                   <p>
                     <strong>{decisionResult.road.designation}</strong> ({decisionResult.road.roadCode})
@@ -4867,7 +4867,7 @@ export default function App() {
                   </p>
                 </div>
 
-                <div className="card">
+                <div className="card decision-card--with-bottom-gap">
                   <h3>Dégradation et déflexion</h3>
                   <p>
                     <strong>Dégradation :</strong> {decisionResult.degradation.name}
