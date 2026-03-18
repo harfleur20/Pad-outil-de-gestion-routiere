@@ -145,6 +145,7 @@ const SHEET_COLUMN_LABELS = {
 
 const COLUMN_KEYS = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P"];
 const DB_COLUMN_KEYS = COLUMN_KEYS.map((key) => `col_${key.toLowerCase()}`);
+const DB_COLUMN_MAP = Object.fromEntries(COLUMN_KEYS.map((key, index) => [key, DB_COLUMN_KEYS[index]]));
 const DEFAULT_INTERVENTION_TEXT = "a determiner (A D)";
 const SOLUTION_TEMPLATES_SEED = [
   {
@@ -1226,17 +1227,19 @@ function resolveSheet(sheetName) {
 }
 
 function rebuildNormalizedCatalogs(db) {
-  const roads = buildRoadCatalog(db);
-  const roadAliases = buildRoadAliasCatalog(db, roads);
-  const degradationItems = buildDegradationCatalog(db);
-  const roadSections = buildRoadSectionCatalog(db);
-  const measurementCatalog = buildRoadMeasurementCatalog(db);
-  const roadMeasurements = measurementCatalog.items;
-  const measurementCampaigns = measurementCatalog.campaigns;
-  const decisionInputs = buildDecisionProfileInputs(db);
-  const degradationDefinitions = buildDegradationDefinitions(db);
-
   const tx = db.transaction(() => {
+    repairRoadCodesInSourceSheets(db);
+    repairSapAssignmentsFromFeuil6(db);
+    const roads = buildRoadCatalog(db);
+    const roadAliases = buildRoadAliasCatalog(db, roads);
+    const degradationItems = buildDegradationCatalog(db);
+    const roadSections = buildRoadSectionCatalog(db);
+    const measurementCatalog = buildRoadMeasurementCatalog(db);
+    const roadMeasurements = measurementCatalog.items;
+    const measurementCampaigns = measurementCatalog.campaigns;
+    const decisionInputs = buildDecisionProfileInputs(db);
+    const degradationDefinitions = buildDegradationDefinitions(db);
+
     db.prepare("DELETE FROM road_degradation").run();
 
     const sapCodes = [...new Set(roads.map((road) => toText(road.sapCode)).filter(Boolean))].sort(
@@ -1360,17 +1363,6 @@ function rebuildNormalizedCatalogs(db) {
 
     seedDefaultDegradationAssignments(db, new Set(keepCodes));
 
-    db.prepare(
-      `
-      DELETE FROM sap_sector
-      WHERE code NOT IN (
-        SELECT DISTINCT sap_code
-        FROM road
-        WHERE sap_code IS NOT NULL AND sap_code <> ''
-      )
-    `
-      ).run();
-
     const roadLookup = buildRoadLookupMaps(db);
     syncRoadSections(db, roadSections, roadLookup);
     syncMeasurementCampaigns(db, measurementCampaigns, roadLookup);
@@ -1386,6 +1378,17 @@ function rebuildNormalizedCatalogs(db) {
         insertRoadDegradation.run(roadId, code);
       }
     }
+
+    db.prepare(
+      `
+      DELETE FROM sap_sector
+      WHERE code NOT IN (
+        SELECT DISTINCT sap_code
+        FROM road
+        WHERE sap_code IS NOT NULL AND sap_code <> ''
+      )
+    `
+      ).run();
   });
 
   tx();
@@ -1613,7 +1616,8 @@ function syncRoadSections(db, sections, roadLookup) {
   for (const section of sections) {
     const roadRef = resolveRoadRef(section, roadLookup);
     const roadId = roadRef ? Number(roadRef.id) : null;
-    const sapCode = toText(section.sapCode) || toText(roadRef?.sapCode);
+    const sapCode = toText(roadRef?.sapCode) || toText(section.sapCode);
+    const sectionNo = alignSectionNoWithSap(section.sectionNo, sapCode);
     const sectionKey = toText(section.sectionKey);
     keepKeys.push(sectionKey);
 
@@ -1622,10 +1626,10 @@ function syncRoadSections(db, sections, roadLookup) {
       toText(section.sourceSheet),
       Number(section.sourceRowNo) || 0,
       toText(section.tronconNo),
-      toText(section.sectionNo),
+      sectionNo,
       toText(section.roadKey),
       Number.isFinite(roadId) ? roadId : null,
-      sapCode,
+      sapCode || null,
       toText(section.roadCode),
       toText(section.designation),
       toText(section.startLabel),
@@ -2092,7 +2096,7 @@ function buildRoadSectionCatalog(db) {
   }
 
   for (const row of rowsFeuil2) {
-    const roadCode = toText(row.C);
+    const roadCode = canonicalizeRoadCode(row.C);
     const designation = toText(row.D);
     if (!isRoadLabel(roadCode, designation)) {
       continue;
@@ -2123,7 +2127,7 @@ function buildRoadSectionCatalog(db) {
   }
 
   for (const row of rowsFeuil5) {
-    const roadCode = toText(row.C);
+    const roadCode = canonicalizeRoadCode(row.C);
     const designation = toText(row.D);
     if (!isRoadLabel(roadCode, designation)) {
       continue;
@@ -2154,7 +2158,7 @@ function buildRoadSectionCatalog(db) {
   }
 
   for (const row of rowsFeuil3) {
-    const roadCode = toText(row.A);
+    const roadCode = canonicalizeRoadCode(row.A);
     const designation = toText(row.B);
     if (!isRoadLabel(roadCode, designation)) {
       continue;
@@ -2620,12 +2624,417 @@ function listSheetRows(db, sheetName, filters = {}) {
   return db.prepare(sql).all(params);
 }
 
+function getRequiredSheetColumns(sheetName) {
+  if (sheetName === "Feuil2") {
+    return ["A", "B", "C"];
+  }
+  if (sheetName === "Feuil3") {
+    return ["A", "F", "G", "H", "I", "J", "L"];
+  }
+  if (sheetName === "Feuil5") {
+    return ["C", "H", "K", "L", "M"];
+  }
+  if (sheetName === "Feuil6") {
+    return ["B", "C", "D", "E", "F", "G"];
+  }
+  if (sheetName === "Feuil7") {
+    return ["A", "B", "C", "G"];
+  }
+  if (sheetName === "Feuil4") {
+    return ["A"];
+  }
+  return [];
+}
+
+function getSheetFieldRequiredMessage(sheetName, column) {
+  if (sheetName === "Feuil2") {
+    if (column === "A") return "Veuillez renseigner le numéro du tronçon.";
+    if (column === "B") return "Veuillez renseigner le numéro de section.";
+    if (column === "C") return "Veuillez choisir la voie concernée.";
+  }
+  if (sheetName === "Feuil3") {
+    if (column === "A") return "Veuillez choisir la voie à diagnostiquer.";
+    if (column === "F") return "Veuillez renseigner la largeur minimale côté façade.";
+    if (column === "G") return "Veuillez renseigner le type de revêtement.";
+    if (column === "H") return "Veuillez renseigner l'état de la chaussée.";
+    if (column === "I") return "Veuillez renseigner le type de caniveaux.";
+    if (column === "J") return "Veuillez renseigner l'état de l'assainissement.";
+    if (column === "L") return "Veuillez renseigner l'intervention à prévoir.";
+  }
+  if (sheetName === "Feuil5") {
+    if (column === "C") return "Veuillez choisir la voie à compléter.";
+    if (column === "H") return "Veuillez renseigner la largeur minimale côté façade.";
+    if (column === "K") return "Veuillez renseigner le type d'assainissement.";
+    if (column === "L") return "Veuillez renseigner l'état de l'assainissement.";
+    if (column === "M") return "Veuillez renseigner la largeur minimale des trottoirs.";
+  }
+  if (sheetName === "Feuil6") {
+    if (column === "B") return "Veuillez renseigner le type de voie.";
+    if (column === "C") return "Veuillez renseigner le code de la voie.";
+    if (column === "D") return "Veuillez renseigner le linéaire en mètres.";
+    if (column === "E") return "Veuillez renseigner le nom proposé.";
+    if (column === "F") return "Veuillez renseigner le début et la fin de la voie.";
+    if (column === "G") return "Veuillez renseigner la justification.";
+  }
+  if (sheetName === "Feuil7") {
+    if (column === "A") return "Veuillez renseigner la catégorie.";
+    if (column === "B") return "Veuillez renseigner la référence.";
+    if (column === "C") return "Veuillez renseigner le nom de la dégradation.";
+    if (column === "G") return "Veuillez renseigner la cause probable.";
+  }
+  if (sheetName === "Feuil4" && column === "A") {
+    return "Veuillez renseigner le libellé.";
+  }
+  const label = SHEET_COLUMN_LABELS?.[sheetName]?.[column] || column;
+  return `Veuillez renseigner ${label}.`;
+}
+
+function parseRoadSectionSourcePayload(sourcePayload) {
+  try {
+    const parsed = JSON.parse(sourcePayload || "{}");
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function getRoadSectionSourceRowNo(section, sheetName) {
+  const parsed = parseRoadSectionSourcePayload(section.sourcePayload);
+  const rowNo = Number(parsed?.sources?.[sheetName]?.rowNo);
+  if (Number.isFinite(rowNo) && rowNo > 0) {
+    return rowNo;
+  }
+  if (section.sourceSheet === sheetName && Number(section.sourceRowNo) > 0) {
+    return Number(section.sourceRowNo);
+  }
+  return 0;
+}
+
+function normalizeRoadCompareKey(value) {
+  return toText(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/BOULEVARD/g, "BVD")
+    .replace(/AVENUE/g, "AV")
+    .replace(/[().,;:_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildMergedSheetCells(current = null, payload = {}) {
+  const cells = {};
+  for (const key of COLUMN_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(payload, key)) {
+      cells[key] = toText(payload[key]);
+    } else {
+      cells[key] = current ? toText(current[key]) : "";
+    }
+  }
+  return cells;
+}
+
+function resolveRoadFromSheetCells(roads, sheetName, cells) {
+  if (!Array.isArray(roads) || roads.length === 0) {
+    return null;
+  }
+
+  if (sheetName === "Feuil2" || sheetName === "Feuil5") {
+    const codeKey = normalizeRoadCompareKey(cells.C);
+    const designationKey = normalizeRoadCompareKey(cells.D);
+    const startKey = normalizeRoadCompareKey(cells.E);
+    const endKey = normalizeRoadCompareKey(cells.F);
+    const sapKey = normalizeRoadCompareKey(parseSapCode(cells.B, cells.A));
+
+    return (
+      roads.find((road) => {
+        const roadCode = normalizeRoadCompareKey(road.roadCode);
+        const roadDesignation = normalizeRoadCompareKey(road.designation);
+        const roadStart = normalizeRoadCompareKey(road.startLabel);
+        const roadEnd = normalizeRoadCompareKey(road.endLabel);
+        const roadSap = normalizeRoadCompareKey(road.sapCode);
+
+        if (codeKey && roadCode === codeKey) {
+          return true;
+        }
+        if (designationKey && roadDesignation === designationKey && (!sapKey || roadSap === sapKey)) {
+          return true;
+        }
+        return Boolean(
+          designationKey &&
+            startKey &&
+            endKey &&
+            roadDesignation === designationKey &&
+            roadStart === startKey &&
+            roadEnd === endKey
+        );
+      }) || null
+    );
+  }
+
+  if (sheetName === "Feuil3") {
+    const codeKey = normalizeRoadCompareKey(cells.A);
+    const designationKey = normalizeRoadCompareKey(cells.B);
+    const startKey = normalizeRoadCompareKey(cells.C);
+    const endKey = normalizeRoadCompareKey(cells.D);
+
+    return (
+      roads.find((road) => {
+        const roadCode = normalizeRoadCompareKey(road.roadCode);
+        const roadDesignation = normalizeRoadCompareKey(road.designation);
+        const roadStart = normalizeRoadCompareKey(road.startLabel);
+        const roadEnd = normalizeRoadCompareKey(road.endLabel);
+
+        if (codeKey && roadCode === codeKey) {
+          return true;
+        }
+        if (designationKey && roadDesignation === designationKey && startKey && endKey) {
+          return roadStart === startKey && roadEnd === endKey;
+        }
+        return Boolean(designationKey && roadDesignation === designationKey);
+      }) || null
+    );
+  }
+
+  if (sheetName === "Feuil6") {
+    const codeKey = normalizeRoadCompareKey(cells.C);
+    const designationKey = normalizeRoadCompareKey(cells.E);
+    const bounds = splitItinerary(cells.F);
+    const startKey = normalizeRoadCompareKey(bounds.startLabel);
+    const endKey = normalizeRoadCompareKey(bounds.endLabel);
+
+    return (
+      roads.find((road) => {
+        const roadCode = normalizeRoadCompareKey(road.roadCode);
+        const roadDesignation = normalizeRoadCompareKey(road.designation);
+        const roadStart = normalizeRoadCompareKey(road.startLabel);
+        const roadEnd = normalizeRoadCompareKey(road.endLabel);
+
+        if (codeKey && roadCode === codeKey) {
+          return true;
+        }
+        if (designationKey && roadDesignation === designationKey) {
+          return true;
+        }
+        return Boolean(startKey && endKey && roadStart === startKey && roadEnd === endKey);
+      }) || null
+    );
+  }
+
+  return null;
+}
+
+function validateSheetRowPayload(db, sheetName, cells, options = {}) {
+  const currentRowId = Number(options.rowId);
+  const currentRowNo = Number(options.rowNo);
+  const currentRow = options.currentRow || null;
+
+  for (const column of getRequiredSheetColumns(sheetName)) {
+    if (!toText(cells[column])) {
+      throw new Error(getSheetFieldRequiredMessage(sheetName, column));
+    }
+  }
+
+  if (sheetName === "Feuil2") {
+    if (toText(cells.A) && !/^[1-9][0-9]*$/.test(toText(cells.A))) {
+      throw new Error("Le numéro du tronçon doit être un nombre entier positif.");
+    }
+    if (toText(cells.B) && !/^[1-9][0-9]*_[1-9][0-9]*$/.test(toText(cells.B))) {
+      throw new Error("Écrivez par exemple 1_1, 2_3 ou 6_1. Le nombre avant _ crée le groupe SAP.");
+    }
+    const lengthM = toNumber(cells.G);
+    if (toText(cells.G) && (!Number.isFinite(lengthM) || Number(lengthM) <= 0)) {
+      throw new Error("La longueur doit être un nombre supérieur à 0.");
+    }
+  }
+
+  if (sheetName === "Feuil3") {
+    const lengthM = toNumber(cells.E);
+    const facadeWidthM = toNumber(cells.F);
+    const sidewalkWidthM = toNumber(cells.K);
+    if (toText(cells.E) && (!Number.isFinite(lengthM) || Number(lengthM) <= 0)) {
+      throw new Error("La longueur doit être un nombre supérieur à 0.");
+    }
+    if (toText(cells.F) && (!Number.isFinite(facadeWidthM) || Number(facadeWidthM) <= 0)) {
+      throw new Error("La largeur côté façade doit être un nombre supérieur à 0.");
+    }
+    if (toText(cells.K) && (!Number.isFinite(sidewalkWidthM) || Number(sidewalkWidthM) < 0)) {
+      throw new Error("La largeur des trottoirs doit être un nombre positif ou nul.");
+    }
+  }
+
+  if (sheetName === "Feuil5") {
+    const numericColumns = [
+      ["H", "La largeur côté façade doit être un nombre supérieur à 0.", true],
+      ["M", "La largeur des trottoirs doit être un nombre positif ou nul.", false],
+      ["N", "La valeur du stationnement à gauche doit être un nombre positif ou nul.", false],
+      ["O", "La valeur du stationnement à droite doit être un nombre positif ou nul.", false]
+    ];
+
+    for (const [column, message, strictPositive] of numericColumns) {
+      const rawValue = toText(cells[column]);
+      const numericValue = toNumber(cells[column]);
+      if (!rawValue) {
+        continue;
+      }
+      if (!Number.isFinite(numericValue) || (strictPositive ? Number(numericValue) <= 0 : Number(numericValue) < 0)) {
+        throw new Error(message);
+      }
+    }
+  }
+
+  if (sheetName === "Feuil6") {
+    const linearM = toNumber(cells.D);
+    if (toText(cells.D) && (!Number.isFinite(linearM) || Number(linearM) <= 0)) {
+      throw new Error("Le linéaire doit être un nombre supérieur à 0.");
+    }
+    const bounds = splitItinerary(cells.F);
+    if (!bounds.startLabel || !bounds.endLabel) {
+      throw new Error("Veuillez renseigner le début et la fin de la voie.");
+    }
+  }
+
+  if (sheetName === "Feuil4") {
+    const hasValue = ["B", "C", "D", "E", "F"].some((column) => toText(cells[column]));
+    if (!hasValue) {
+      throw new Error("Veuillez remplir au moins une valeur utile sur cette ligne.");
+    }
+  }
+
+  const roads = ["Feuil2", "Feuil3", "Feuil5", "Feuil6"].includes(sheetName) ? listRoadCatalog(db, {}) : [];
+  const sections = ["Feuil2", "Feuil3", "Feuil5"].includes(sheetName) ? listRoadSections(db, {}) : [];
+  const draftRoad = resolveRoadFromSheetCells(roads, sheetName, cells);
+  const currentRoad = currentRow ? resolveRoadFromSheetCells(roads, sheetName, currentRow) : null;
+  const editingRoadId = currentRoad?.id || 0;
+
+  if ((sheetName === "Feuil2" || sheetName === "Feuil3" || sheetName === "Feuil5") && !draftRoad) {
+    throw new Error("La voie choisie doit déjà exister dans le référentiel central des voies.");
+  }
+
+  if (sheetName === "Feuil2" || sheetName === "Feuil5") {
+    const sectionNo = normalizeText(cells.B);
+    const startKey = normalizeText(cells.E);
+    const endKey = normalizeText(cells.F);
+    const roadCodeKey = normalizeRoadCode(cells.C);
+
+    const duplicateSection = sections.find((section) => {
+      const sheetRowNo = getRoadSectionSourceRowNo(section, sheetName);
+      if (!sheetRowNo || (currentRowNo && sheetRowNo === currentRowNo)) {
+        return false;
+      }
+
+      const sameRoad = draftRoad
+        ? (section.roadId ? Number(section.roadId) === Number(draftRoad.id) : normalizeText(section.roadKey) === normalizeText(draftRoad.roadKey))
+        : normalizeRoadCode(section.roadCode) === roadCodeKey;
+
+      if (!sameRoad) {
+        return false;
+      }
+      if (sectionNo && normalizeText(section.sectionNo) === sectionNo) {
+        return true;
+      }
+      return Boolean(startKey && endKey && normalizeText(section.startLabel) === startKey && normalizeText(section.endLabel) === endKey);
+    });
+
+    if (duplicateSection) {
+      throw new Error(`Cette section existe déjà pour cette voie (${toText(duplicateSection.sectionNo) || "-"}).`);
+    }
+  }
+
+  if (sheetName === "Feuil3") {
+    const duplicateSection = sections.find((section) => {
+      const sheetRowNo = getRoadSectionSourceRowNo(section, "Feuil3");
+      if (!sheetRowNo || (currentRowNo && sheetRowNo === currentRowNo)) {
+        return false;
+      }
+      if (draftRoad) {
+        return section.roadId ? Number(section.roadId) === Number(draftRoad.id) : normalizeText(section.roadKey) === normalizeText(draftRoad.roadKey);
+      }
+      return (
+        normalizeRoadCode(section.roadCode) === normalizeRoadCode(cells.A) ||
+        normalizeRoadCompareKey(section.designation) === normalizeRoadCompareKey(cells.B)
+      );
+    });
+
+    if (duplicateSection) {
+      throw new Error(`Cette voie possède déjà un profil dans cette feuille (${toText(duplicateSection.roadCode) || "-"}).`);
+    }
+  }
+
+  if (sheetName === "Feuil6") {
+    const codeKey = normalizeRoadCode(cells.C);
+    const designationKey = normalizeRoadCompareKey(cells.E);
+    const bounds = splitItinerary(cells.F);
+    const startKey = normalizeRoadCompareKey(bounds.startLabel);
+    const endKey = normalizeRoadCompareKey(bounds.endLabel);
+
+    const duplicateByCode = roads.find(
+      (road) => codeKey && normalizeRoadCode(road.roadCode) === codeKey && (!editingRoadId || Number(road.id) !== Number(editingRoadId))
+    );
+    if (duplicateByCode) {
+      throw new Error(`Ce code de voie existe déjà dans le répertoire (${toText(duplicateByCode.roadCode) || "-"}).`);
+    }
+
+    const duplicateByDesignation = roads.find(
+      (road) =>
+        designationKey &&
+        normalizeRoadCompareKey(road.designation) === designationKey &&
+        (!editingRoadId || Number(road.id) !== Number(editingRoadId))
+    );
+    if (duplicateByDesignation) {
+      throw new Error(`Cette voie existe déjà dans le répertoire (${toText(duplicateByDesignation.designation) || "-"}).`);
+    }
+
+    const duplicateByBounds = roads.find(
+      (road) =>
+        startKey &&
+        endKey &&
+        normalizeRoadCompareKey(road.startLabel) === startKey &&
+        normalizeRoadCompareKey(road.endLabel) === endKey &&
+        (!editingRoadId || Number(road.id) !== Number(editingRoadId))
+    );
+    if (duplicateByBounds) {
+      throw new Error(`Cette combinaison début / fin existe déjà dans le répertoire (${toText(duplicateByBounds.designation) || "-"}).`);
+    }
+  }
+
+  if (sheetName === "Feuil7" || sheetName === "Feuil4") {
+    const comparableRows = listSheetRows(db, sheetName, { limit: 5000 }).filter((row) => !currentRowId || Number(row.id) !== currentRowId);
+
+    if (sheetName === "Feuil7") {
+      const referenceKey = normalizeText(cells.B);
+      const degradationKey = normalizeRoadCompareKey(cells.C);
+      const duplicate = comparableRows.find(
+        (row) =>
+          (referenceKey && normalizeText(row.B) === referenceKey) ||
+          (degradationKey && normalizeRoadCompareKey(row.C) === degradationKey)
+      );
+      if (duplicate) {
+        if (referenceKey && normalizeText(duplicate.B) === referenceKey) {
+          throw new Error(`Cette référence existe déjà (${toText(duplicate.B) || "-"}).`);
+        }
+        throw new Error(`Cette dégradation existe déjà (${toText(duplicate.C) || "-"}).`);
+      }
+    }
+
+    if (sheetName === "Feuil4") {
+      const labelKey = normalizeRoadCompareKey(cells.A);
+      const duplicate = comparableRows.find((row) => labelKey && normalizeRoadCompareKey(row.A) === labelKey);
+      if (duplicate) {
+        throw new Error(`Cette ligne existe déjà dans le programme d'évaluation (${toText(duplicate.A) || "-"}).`);
+      }
+    }
+  }
+}
+
 function createSheetRow(db, sheetName, payload = {}) {
   const sheet = resolveSheet(sheetName);
   const explicitRowNo = Number(payload.rowNo);
   const maxRowNo = db.prepare(`SELECT COALESCE(MAX(row_no), 0) AS maxRowNo FROM ${sheet.table}`).get().maxRowNo;
   const rowNo = Number.isFinite(explicitRowNo) && explicitRowNo > 0 ? explicitRowNo : maxRowNo + 1;
-  const values = COLUMN_KEYS.map((key) => toText(payload[key]));
+  const cells = buildMergedSheetCells(null, payload);
+  validateSheetRowPayload(db, sheet.name, cells, { rowNo });
+  const values = COLUMN_KEYS.map((key) => cells[key]);
 
   const insert = db.prepare(`
     INSERT INTO ${sheet.table} (
@@ -2637,9 +3046,13 @@ function createSheetRow(db, sheetName, payload = {}) {
     )
   `);
 
-  const insertedId = insert.run(rowNo, ...values).lastInsertRowid;
-  rebuildNormalizedCatalogs(db);
-  return getSheetRowById(db, sheet, insertedId);
+  const tx = db.transaction(() => {
+    const insertedId = insert.run(rowNo, ...values).lastInsertRowid;
+    rebuildNormalizedCatalogs(db);
+    return getSheetRowById(db, sheet, insertedId);
+  });
+
+  return tx();
 }
 
 function updateSheetRow(db, sheetName, rowId, payload = {}) {
@@ -2656,13 +3069,13 @@ function updateSheetRow(db, sheetName, rowId, payload = {}) {
 
   const explicitRowNo = Number(payload.rowNo);
   const rowNo = Number.isFinite(explicitRowNo) && explicitRowNo > 0 ? explicitRowNo : current.rowNo;
-
-  const values = COLUMN_KEYS.map((key) => {
-    if (Object.prototype.hasOwnProperty.call(payload, key)) {
-      return toText(payload[key]);
-    }
-    return toText(current[key]);
+  const cells = buildMergedSheetCells(current, payload);
+  validateSheetRowPayload(db, sheet.name, cells, {
+    rowId: id,
+    rowNo,
+    currentRow: current
   });
+  const values = COLUMN_KEYS.map((key) => cells[key]);
 
   const update = db.prepare(`
     UPDATE ${sheet.table}
@@ -2673,9 +3086,13 @@ function updateSheetRow(db, sheetName, rowId, payload = {}) {
     WHERE id = ?
   `);
 
-  update.run(rowNo, ...values, id);
-  rebuildNormalizedCatalogs(db);
-  return getSheetRowById(db, sheet, id);
+  const tx = db.transaction(() => {
+    update.run(rowNo, ...values, id);
+    rebuildNormalizedCatalogs(db);
+    return getSheetRowById(db, sheet, id);
+  });
+
+  return tx();
 }
 
 function deleteSheetRow(db, sheetName, rowId) {
@@ -4489,18 +4906,19 @@ function buildRoadCatalog(db) {
   const rowsFeuil2 = listSheetRows(db, "Feuil2", { limit: 5000 });
   const rowsFeuil3 = listSheetRows(db, "Feuil3", { limit: 5000 });
   const rowsFeuil6 = listSheetRows(db, "Feuil6", { limit: 5000 });
+  const sapAssignmentsFromFeuil6 = buildFeuil6SapAssignments(rowsFeuil6);
 
   const roadsByKey = new Map();
 
   for (const row of rowsFeuil5) {
-    const roadCode = toText(row.C);
+    const roadCode = canonicalizeRoadCode(row.C);
     const designation = toText(row.D);
     if (!isRoadLabel(roadCode, designation)) {
       continue;
     }
     const key = makeRoadKey(roadCode, designation);
     const road = ensureRoad(roadsByKey, key, roadCode, designation);
-    road.sapCode = road.sapCode || parseSapCode(row.B, row.A);
+    road.sapCode = toText(sapAssignmentsFromFeuil6.get(key)) || road.sapCode || parseSapCode(row.B, row.A);
     road.startLabel = road.startLabel || toText(row.E);
     road.endLabel = road.endLabel || toText(row.F);
     road.lengthM = road.lengthM ?? toNumber(row.G);
@@ -4516,14 +4934,14 @@ function buildRoadCatalog(db) {
   }
 
   for (const row of rowsFeuil2) {
-    const roadCode = toText(row.C);
+    const roadCode = canonicalizeRoadCode(row.C);
     const designation = toText(row.D);
     if (!isRoadLabel(roadCode, designation)) {
       continue;
     }
     const key = makeRoadKey(roadCode, designation);
     const road = ensureRoad(roadsByKey, key, roadCode, designation);
-    road.sapCode = road.sapCode || parseSapCode(row.B, row.A);
+    road.sapCode = toText(sapAssignmentsFromFeuil6.get(key)) || road.sapCode || parseSapCode(row.B, row.A);
     road.startLabel = road.startLabel || toText(row.E);
     road.endLabel = road.endLabel || toText(row.F);
     road.lengthM = road.lengthM ?? toNumber(row.G);
@@ -4532,7 +4950,7 @@ function buildRoadCatalog(db) {
   // Feuil3 porte les champs metier "CHAUSSEE" et "ASSAINISSEMENT".
   // On l'applique sur le catalogue pour que l'evaluation utilise ces valeurs.
   for (const row of rowsFeuil3) {
-    const roadCode = toText(row.A);
+    const roadCode = canonicalizeRoadCode(row.A);
     const designation = toText(row.B);
     if (!isRoadLabel(roadCode, designation)) {
       continue;
@@ -4592,14 +5010,14 @@ function buildRoadCatalog(db) {
       currentSapFromFeuil6 = sapMarker;
     }
 
-    const roadCode = toText(row.C);
+    const roadCode = canonicalizeRoadCode(row.C);
     const designation = toText(row.E);
     if (!isRoadLabel(roadCode, designation)) {
       continue;
     }
     const key = makeRoadKey(roadCode, designation);
     const road = ensureRoad(roadsByKey, key, roadCode, designation);
-    road.sapCode = road.sapCode || currentSapFromFeuil6;
+    road.sapCode = toText(currentSapFromFeuil6) || road.sapCode;
     road.designation = road.designation || designation;
     road.lengthM = road.lengthM ?? toNumber(row.D);
     road.itinerary = road.itinerary || toText(row.F);
@@ -4697,12 +5115,13 @@ function buildRoadAliasCatalog(db, roads) {
   }
 
   function processSourceRow(roadCode, designation, startLabel, endLabel, sourceSheet) {
-    if (!isRoadLabel(roadCode, designation)) {
+    const normalizedRoadCode = canonicalizeRoadCode(roadCode);
+    if (!isRoadLabel(normalizedRoadCode, designation)) {
       return;
     }
 
-    const roadKey = makeRoadKey(roadCode, designation);
-    registerAlias(roadKey, roadCode, "ROAD_CODE", sourceSheet);
+    const roadKey = makeRoadKey(normalizedRoadCode, designation);
+    registerAlias(roadKey, normalizedRoadCode, "ROAD_CODE", sourceSheet);
     registerAlias(roadKey, designation, "DESIGNATION", sourceSheet);
     registerAlias(roadKey, simplifyRoadDesignation(designation), "SIMPLIFIED_DESIGNATION", sourceSheet);
     registerBoundsAlias(roadKey, designation, startLabel, endLabel, sourceSheet);
@@ -5089,6 +5508,230 @@ function parseSapCode(sectionNo, rowLabel) {
   return "";
 }
 
+function canonicalizeRoadCode(value) {
+  const raw = toText(value);
+  if (!raw) {
+    return "";
+  }
+
+  const compact = normalizeText(raw)
+    .replace(/BOULEVARD/g, "BVD")
+    .replace(/AVENUE/g, "AV")
+    .replace(/[^A-Z0-9]/g, "");
+
+  const match = compact.match(/^(RUE|BVD|AV)([0-9]{1,3})$/);
+  if (!match) {
+    return raw;
+  }
+
+  const prefix = match[1] === "BVD" ? "Bvd" : match[1] === "AV" ? "Av" : "Rue";
+  const digits = match[2].padStart(2, "0");
+  return `${prefix}.${digits}`;
+}
+
+function buildFeuil6SapAssignments(rowsFeuil6) {
+  const sapByRoadKey = new Map();
+  let currentSap = "";
+
+  for (const row of rowsFeuil6) {
+    const sapMarker = parseSapCode(row.A, row.A);
+    if (sapMarker) {
+      currentSap = sapMarker;
+    }
+
+    const roadCode = toText(row.C);
+    const designation = toText(row.E);
+    if (!currentSap || !isRoadLabel(roadCode, designation)) {
+      continue;
+    }
+
+    sapByRoadKey.set(makeRoadKey(roadCode, designation), currentSap);
+  }
+
+  return sapByRoadKey;
+}
+
+function alignSectionNoWithSap(sectionNo, sapCode) {
+  const text = toText(sectionNo);
+  const sectionMatch = text.match(/^([1-9][0-9]?)_(.+)$/);
+  const sapMatch = toText(sapCode).match(/^SAP([1-9][0-9]?)$/i);
+  if (!sectionMatch || !sapMatch) {
+    return text;
+  }
+
+  const targetPrefix = sapMatch[1];
+  if (sectionMatch[1] === targetPrefix) {
+    return text;
+  }
+
+  return `${targetPrefix}_${sectionMatch[2]}`;
+}
+
+function repairSapAssignmentsFromFeuil6(db) {
+  if (!tableExists(db, "sheet_feuil2") || !tableExists(db, "sheet_feuil5") || !tableExists(db, "sheet_feuil6")) {
+    return;
+  }
+
+  const sapAssignmentsFromFeuil6 = buildFeuil6SapAssignments(listSheetRows(db, "Feuil6", { limit: 5000 }));
+  if (sapAssignmentsFromFeuil6.size === 0) {
+    return;
+  }
+
+  const migratedRoads = new Map();
+
+  for (const sheetName of ["Feuil2", "Feuil5"]) {
+    const sheet = resolveSheet(sheetName);
+    const rows = listSheetRows(db, sheetName, { limit: 5000 });
+    const updateSectionNo = db.prepare(`
+      UPDATE ${sheet.table}
+      SET col_b = ?, updated_at = datetime('now')
+      WHERE id = ?
+    `);
+
+    for (const row of rows) {
+      const roadCode = toText(row.C);
+      const designation = toText(row.D);
+      if (!isRoadLabel(roadCode, designation)) {
+        continue;
+      }
+
+      const roadKey = makeRoadKey(roadCode, designation);
+      const authoritativeSap = toText(sapAssignmentsFromFeuil6.get(roadKey));
+      if (!authoritativeSap) {
+        continue;
+      }
+
+      const nextSectionNo = alignSectionNoWithSap(row.B, authoritativeSap);
+      if (!nextSectionNo || nextSectionNo === toText(row.B)) {
+        continue;
+      }
+
+      updateSectionNo.run(nextSectionNo, Number(row.id));
+      migratedRoads.set(roadKey, {
+        roadCode,
+        designation,
+        sapCode: authoritativeSap
+      });
+    }
+  }
+
+  if (migratedRoads.size === 0) {
+    return;
+  }
+
+  if (tableExists(db, "decision_history")) {
+    const updateDecisionHistoryByCode = db.prepare(`
+      UPDATE decision_history
+      SET sap_code = ?
+      WHERE road_code = ? AND COALESCE(sap_code, '') <> ?
+    `);
+    const updateDecisionHistoryByDesignation = db.prepare(`
+      UPDATE decision_history
+      SET sap_code = ?
+      WHERE road_code = '' AND road_designation = ? AND COALESCE(sap_code, '') <> ?
+    `);
+
+    for (const road of migratedRoads.values()) {
+      if (toText(road.roadCode)) {
+        updateDecisionHistoryByCode.run(road.sapCode, road.roadCode, road.sapCode);
+      } else if (toText(road.designation)) {
+        updateDecisionHistoryByDesignation.run(road.sapCode, road.designation, road.sapCode);
+      }
+    }
+  }
+
+  if (tableExists(db, "maintenance_intervention")) {
+    const updateMaintenanceByCode = db.prepare(`
+      UPDATE maintenance_intervention
+      SET sap_code = ?, updated_at = datetime('now')
+      WHERE road_code = ? AND COALESCE(sap_code, '') <> ?
+    `);
+    const updateMaintenanceByDesignation = db.prepare(`
+      UPDATE maintenance_intervention
+      SET sap_code = ?, updated_at = datetime('now')
+      WHERE road_code = '' AND road_designation = ? AND COALESCE(sap_code, '') <> ?
+    `);
+
+    for (const road of migratedRoads.values()) {
+      if (toText(road.roadCode)) {
+        updateMaintenanceByCode.run(road.sapCode, road.roadCode, road.sapCode);
+      } else if (toText(road.designation)) {
+        updateMaintenanceByDesignation.run(road.sapCode, road.designation, road.sapCode);
+      }
+    }
+  }
+}
+
+function repairRoadCodesInSourceSheets(db) {
+  const sheetSpecs = [
+    { name: "Feuil2", codeColumn: "C", designationColumn: "D" },
+    { name: "Feuil3", codeColumn: "A", designationColumn: "B" },
+    { name: "Feuil5", codeColumn: "C", designationColumn: "D" },
+    { name: "Feuil6", codeColumn: "C", designationColumn: "E" }
+  ];
+
+  const updatedCodes = new Map();
+
+  for (const spec of sheetSpecs) {
+    const sheet = resolveSheet(spec.name);
+    const codeDbColumn = DB_COLUMN_MAP[spec.codeColumn];
+    const rows = listSheetRows(db, spec.name, { limit: 5000 });
+    const updateCode = db.prepare(`
+      UPDATE ${sheet.table}
+      SET ${codeDbColumn} = ?, updated_at = datetime('now')
+      WHERE id = ?
+    `);
+
+    for (const row of rows) {
+      const currentCode = toText(row[spec.codeColumn]);
+      const designation = toText(row[spec.designationColumn]);
+      const nextCode = canonicalizeRoadCode(currentCode);
+      if (!nextCode || nextCode === currentCode || !isRoadLabel(nextCode, designation)) {
+        continue;
+      }
+
+      updateCode.run(nextCode, Number(row.id));
+      updatedCodes.set(`${spec.name}:${Number(row.id)}`, { currentCode, nextCode });
+    }
+  }
+
+  if (updatedCodes.size === 0) {
+    return;
+  }
+
+  const repairTableRoadCode = (tableName) => {
+    if (!tableExists(db, tableName)) {
+      return;
+    }
+
+    const rows = db.prepare(`SELECT id, road_code AS roadCode FROM ${tableName}`).all();
+    const setClause = tableHasColumn(db, tableName, "updated_at")
+      ? "road_code = ?, updated_at = datetime('now')"
+      : "road_code = ?";
+    const update = db.prepare(`UPDATE ${tableName} SET ${setClause} WHERE id = ?`);
+
+    for (const row of rows) {
+      const currentCode = toText(row.roadCode);
+      const nextCode = canonicalizeRoadCode(currentCode);
+      if (!nextCode || nextCode === currentCode) {
+        continue;
+      }
+      update.run(nextCode, Number(row.id));
+    }
+  };
+
+  for (const tableName of [
+    "road",
+    "road_section",
+    "measurement_campaign",
+    "road_measurement",
+    "decision_history",
+    "maintenance_intervention"
+  ]) {
+    repairTableRoadCode(tableName);
+  }
+}
+
 function normalizeRoadAliasValue(value) {
   return toText(value)
     .normalize("NFD")
@@ -5122,14 +5765,24 @@ function makeRoadBoundsAliasKey(designation, startLabel, endLabel) {
 
 function splitItinerary(itinerary) {
   const text = toText(itinerary);
-  const match = text.match(/^(?:DE\s+)?(.+?)\s+[AÀ]\s+(.+)$/i);
-  if (!match) {
+  if (!text) {
     return { startLabel: "", endLabel: "" };
   }
-  return {
-    startLabel: toText(match[1]),
-    endLabel: toText(match[2])
-  };
+  const itineraryMatch = text.match(/^(?:DE\s+)?(.+?)\s+[AÀ]\s+(.+)$/i);
+  if (itineraryMatch) {
+    return {
+      startLabel: toText(itineraryMatch[1]),
+      endLabel: toText(itineraryMatch[2])
+    };
+  }
+  const slashMatch = text.match(/^(.+?)\s*\/\s*(.+)$/);
+  if (slashMatch) {
+    return {
+      startLabel: toText(slashMatch[1]),
+      endLabel: toText(slashMatch[2])
+    };
+  }
+  return { startLabel: text, endLabel: "" };
 }
 
 function isRoadLabel(roadCode, designation) {
@@ -5241,7 +5894,7 @@ function normalizeMaintenanceStatus(value) {
 }
 
 function normalizeRoadCode(value) {
-  return normalizeText(value)
+  return normalizeText(canonicalizeRoadCode(value))
     .replace(/BOULEVARD/g, "BVD")
     .replace(/AVENUE/g, "AV")
     .replace(/[^A-Z0-9]/g, "");

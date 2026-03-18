@@ -267,6 +267,37 @@ body {
   color: #785e00;
 }
 
+.status-pill--danger {
+  border-color: rgba(213, 69, 69, 0.42);
+  background: rgba(213, 69, 69, 0.14);
+  color: #8f2525;
+}
+
+.status-pill--info {
+  border-color: rgba(44, 161, 226, 0.42);
+  background: rgba(44, 161, 226, 0.14);
+  color: #0d5e93;
+}
+
+.status-pill--neutral {
+  border-color: rgba(112, 136, 170, 0.35);
+  background: rgba(112, 136, 170, 0.12);
+  color: #49617e;
+}
+
+.road-state {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.road-state small {
+  color: var(--pad-muted);
+  font-size: 0.74rem;
+  line-height: 1.2;
+}
+
 .kpi-grid {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -511,6 +542,38 @@ body {
   color: var(--pad-muted);
   font-size: 0.8rem;
   line-height: 1.4;
+}
+
+.decision-alignment {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.decision-alignment__item,
+.decision-alignment__status {
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid #dbe8f8;
+  background: #ffffff;
+}
+
+.decision-alignment__item span,
+.decision-alignment__status span {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 0.8rem;
+  color: var(--pad-muted);
+}
+
+.decision-alignment__item strong,
+.decision-alignment__status strong {
+  display: block;
+  color: var(--pad-blue-dark);
+}
+
+.decision-alignment__status p {
+  margin: 8px 0 0;
 }
 
 .decision-detail {
@@ -1560,7 +1623,9 @@ label {
 
   .decision-print-view .card,
   .decision-print-view .decision-compare,
-  .decision-print-view .decision-detail {
+  .decision-print-view .decision-detail,
+  .decision-print-view .decision-alignment__item,
+  .decision-print-view .decision-alignment__status {
     border: none !important;
     border-radius: 0 !important;
     box-shadow: none !important;
@@ -1601,15 +1666,24 @@ label {
 
   .decision-print-view .decision-compare span,
   .decision-print-view .decision-detail span,
-  .decision-print-view .decision-compare small {
+  .decision-print-view .decision-compare small,
+  .decision-print-view .decision-alignment__item span,
+  .decision-print-view .decision-alignment__status span {
     font-size: 0.72rem;
     line-height: 1.35;
   }
 
   .decision-print-view .decision-compare strong,
-  .decision-print-view .decision-detail strong {
+  .decision-print-view .decision-detail strong,
+  .decision-print-view .decision-alignment__item strong,
+  .decision-print-view .decision-alignment__status strong {
     font-size: 0.9rem;
     line-height: 1.25;
+  }
+
+  .decision-print-view .decision-alignment {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
   }
 
   .decision-print-view .card h3 {
@@ -1736,6 +1810,27 @@ label {
     border-color: rgba(255, 214, 10, 0.6) !important;
     background: rgba(255, 214, 10, 0.24) !important;
     color: #725b00 !important;
+  }
+
+  .sheet-print-view .status-pill--danger,
+  .decision-output .status-pill--danger {
+    border-color: rgba(213, 69, 69, 0.52) !important;
+    background: rgba(213, 69, 69, 0.18) !important;
+    color: #8f2525 !important;
+  }
+
+  .sheet-print-view .status-pill--info,
+  .decision-output .status-pill--info {
+    border-color: rgba(44, 161, 226, 0.5) !important;
+    background: rgba(44, 161, 226, 0.18) !important;
+    color: #0d5e93 !important;
+  }
+
+  .sheet-print-view .status-pill--neutral,
+  .decision-output .status-pill--neutral {
+    border-color: rgba(112, 136, 170, 0.42) !important;
+    background: rgba(112, 136, 170, 0.16) !important;
+    color: #49617e !important;
   }
 
   .decision-output .card--solution-missing {

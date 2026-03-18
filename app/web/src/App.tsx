@@ -158,7 +158,7 @@ function getSheetFieldPlaceholder(sheetName: string | undefined, column: SheetCo
     if (column === "M") return "Ex: 1,5";
     if (column === "N") return "Ex: 1";
     if (column === "O") return "Ex: 1";
-    if (column === "P") return "Ex: 0";
+    if (column === "P") return "Ex: Stationnement poids lourds";
   }
   if (sheetName === "Feuil6") {
     if (column === "A") return "Ex: 1";
@@ -227,14 +227,12 @@ function getSheetFieldHelpText(sheetName: string | undefined, column: SheetColum
     if (column === "F") return "Nom du lieu où la section se termine. Ce n'est pas une date.";
     if (column === "G") return "Longueur de la section en mètres.";
     if (column === "H") return "Largeur minimale en mètres.";
-    if (column === "I") return "Type de revêtement observé sur la chaussée.";
-    if (column === "J") return "État général de la chaussée.";
     if (column === "K") return "Type de caniveaux ou d'assainissement.";
     if (column === "L") return "État de l'assainissement.";
     if (column === "M") return "Largeur minimale des trottoirs en mètres.";
     if (column === "N") return "Valeur de stationnement du côté gauche.";
     if (column === "O") return "Valeur de stationnement du côté droit.";
-    if (column === "P") return "Autre information utile sur le stationnement.";
+    if (column === "P") return "Autre information utile sur le stationnement ou l'occupation latérale.";
   }
   if (sheetName === "Feuil6") {
     if (column === "A") return "Numéro d'ordre de la ligne dans le répertoire.";
@@ -273,7 +271,7 @@ function getRequiredSheetColumns(sheetName: string | undefined): SheetColumnKey[
     return ["A", "F", "G", "H", "I", "J", "L"];
   }
   if (sheetName === "Feuil5") {
-    return ["C", "H", "I", "J", "K", "L", "M"];
+    return ["C", "H", "K", "L", "M"];
   }
   if (sheetName === "Feuil6") {
     return ["B", "C", "D", "E", "F", "G"];
@@ -309,8 +307,6 @@ function getSheetFieldRequiredMessage(sheetName: string | undefined, column: She
   if (sheetName === "Feuil5") {
     if (column === "C") return "Veuillez choisir la voie à compléter.";
     if (column === "H") return "Veuillez renseigner la largeur minimale côté façade.";
-    if (column === "I") return "Veuillez renseigner le type de revêtement.";
-    if (column === "J") return "Veuillez renseigner l'état de la chaussée.";
     if (column === "K") return "Veuillez renseigner le type d'assainissement.";
     if (column === "L") return "Veuillez renseigner l'état de l'assainissement.";
     if (column === "M") return "Veuillez renseigner la largeur minimale des trottoirs.";
@@ -553,6 +549,160 @@ function toDeflectionRecommendationLabel(value: unknown) {
   return text;
 }
 
+function describeRoadState(value: unknown): {
+  label: string;
+  tone: "ok" | "warning" | "danger" | "info" | "neutral";
+  family: "technique" | "travaux" | "exploitation" | "autre";
+  helper: string;
+} | null {
+  const raw = String(value ?? "").trim();
+  if (!raw || raw === "-") {
+    return null;
+  }
+
+  const normalized = normalizeLabel(raw);
+  if (!normalized) {
+    return null;
+  }
+
+  if (normalized.includes("EN COURS") && normalized.includes("AMENAG")) {
+    return {
+      label: "En cours d'aménagement",
+      tone: "info",
+      family: "travaux",
+      helper: "Travaux ou aménagement en cours"
+    };
+  }
+
+  if (normalized.includes("NON AMENAG")) {
+    return {
+      label: "Non aménagée",
+      tone: "neutral",
+      family: "exploitation",
+      helper: "Section non aménagée"
+    };
+  }
+
+  if (normalized === "RAS") {
+    return {
+      label: "RAS",
+      tone: "neutral",
+      family: "exploitation",
+      helper: "Aucun signalement explicite"
+    };
+  }
+
+  if (normalized.startsWith("BON")) {
+    return {
+      label: "Bon",
+      tone: "ok",
+      family: "technique",
+      helper: "État technique favorable"
+    };
+  }
+
+  if (normalized.startsWith("MOY")) {
+    return {
+      label: "Moyen",
+      tone: "warning",
+      family: "technique",
+      helper: "État technique à surveiller"
+    };
+  }
+
+  if (normalized.startsWith("MAU")) {
+    return {
+      label: "Mauvais",
+      tone: "danger",
+      family: "technique",
+      helper: "État technique dégradé"
+    };
+  }
+
+  return {
+    label: raw,
+    tone: "neutral",
+    family: "autre",
+    helper: "État renseigné"
+  };
+}
+
+function renderRoadState(value: unknown, showHelper = false) {
+  const descriptor = describeRoadState(value);
+  if (!descriptor) {
+    return toDisplay(value);
+  }
+
+  return (
+    <span className={`road-state road-state--${showHelper ? "detailed" : "compact"}`}>
+      <span className={`status-pill status-pill--${descriptor.tone}`}>{descriptor.label}</span>
+      {showHelper ? <small>{descriptor.helper}</small> : null}
+    </span>
+  );
+}
+
+function compareRecommendations(referenceValue: unknown, computedValue: unknown): {
+  tone: "ok" | "warning" | "danger" | "info" | "neutral";
+  label: string;
+  message: string;
+} {
+  const reference = String(referenceValue ?? "").trim();
+  const computed = String(computedValue ?? "").trim();
+  const normalizedReference = normalizeLabel(reference);
+  const normalizedComputed = normalizeLabel(computed);
+  const referenceKnown = Boolean(reference && !isToDetermineIntervention(reference));
+  const computedKnown = Boolean(computed && computed !== "-");
+
+  if (!referenceKnown && !computedKnown) {
+    return {
+      tone: "neutral",
+      label: "Alignement incomplet",
+      message: "Ni le référentiel ni le calcul n'apportent encore une intervention exploitable."
+    };
+  }
+
+  if (!referenceKnown) {
+    return {
+      tone: "info",
+      label: "Référentiel à compléter",
+      message: "Le calcul propose une orientation, mais aucune intervention fiable n'est encore renseignée dans le référentiel."
+    };
+  }
+
+  if (!computedKnown) {
+    return {
+      tone: "warning",
+      label: "Calcul à compléter",
+      message: "Le référentiel indique déjà une intervention, mais le calcul n'apporte pas encore de recommandation exploitable."
+    };
+  }
+
+  if (normalizedReference === normalizedComputed) {
+    return {
+      tone: "ok",
+      label: "Référentiel cohérent",
+      message: "L'intervention connue dans le référentiel est cohérente avec la recommandation calculée."
+    };
+  }
+
+  if (
+    normalizedReference.includes(normalizedComputed) ||
+    normalizedComputed.includes(normalizedReference)
+  ) {
+    return {
+      tone: "warning",
+      label: "Formulations à rapprocher",
+      message: "Le référentiel et le calcul pointent dans la même direction, mais les formulations ne sont pas strictement identiques."
+    };
+  }
+
+  return {
+    tone: "danger",
+    label: "Divergence à arbitrer",
+    message: "L'intervention connue dans le référentiel diverge de la recommandation calculée. Un arbitrage métier est nécessaire."
+  };
+}
+
 function formatMeasurementNumber(value: number | null | undefined) {
   if (!Number.isFinite(value ?? null)) {
     return "-";
@@ -643,13 +793,13 @@ function getSheetPrintSubtitle(sheetName: string) {
     return "Référentiel des sections du réseau, groupé par SAP, utilisé pour structurer les voies et leurs bornes.";
   }
   if (sheetName === "Feuil3") {
-    return "Profil technique détaillé des voies : chaussée, assainissement, trottoirs et nature d'intervention recommandée.";
+    return "Diagnostic technique des sections : état de la chaussée, assainissement et intervention à prévoir.";
   }
   if (sheetName === "Feuil4") {
     return "Tableau d'évaluation des observations, causes probables et décisions de maintenance.";
   }
   if (sheetName === "Feuil5") {
-    return "Compléments techniques des sections : assainissement, largeur minimale, trottoirs et stationnement.";
+    return "Compléments latéraux des sections : largeurs utiles, trottoirs, stationnement et contexte d'assainissement.";
   }
   if (sheetName === "Feuil6") {
     return "Répertoire codifié central des voies : type, code, début, fin et justification.";
@@ -1275,6 +1425,14 @@ export default function App() {
       decisionResult.maintenanceSolution ||
       toDeflectionRecommendationLabel(decisionResult.deflection.recommendation) ||
       "À confirmer";
+    const alignmentStatus = compareRecommendations(
+      hasContextualIntervention ? decisionResult.contextualIntervention : "",
+      decisionResult.maintenanceSolution || toDeflectionRecommendationLabel(decisionResult.deflection.recommendation)
+    );
+
+    if (alignmentStatus.tone === "danger" || alignmentStatus.tone === "warning") {
+      warnings.push(alignmentStatus.message);
+    }
 
     const rationale = [
       hasDeflection
@@ -1304,6 +1462,24 @@ export default function App() {
       rationale
     };
   }, [askDrainage, decisionResult]);
+  const decisionAlignment = useMemo(() => {
+    if (!decisionResult) {
+      return null;
+    }
+
+    const referenceIntervention =
+      decisionResult.contextualIntervention && !isToDetermineIntervention(decisionResult.contextualIntervention)
+        ? decisionResult.contextualIntervention
+        : "";
+    const computedRecommendation =
+      decisionResult.maintenanceSolution || toDeflectionRecommendationLabel(decisionResult.deflection.recommendation) || "";
+
+    return {
+      referenceIntervention,
+      computedRecommendation,
+      status: compareRecommendations(referenceIntervention, computedRecommendation)
+    };
+  }, [decisionResult]);
   const filteredDegradations = useMemo(() => {
     const searchTerm = degradationSearch.trim().toLowerCase();
     if (!searchTerm) {
@@ -1606,6 +1782,25 @@ export default function App() {
       }).length,
     [feuil3Profiles]
   );
+  const feuil3SpecialStateCounts = useMemo(() => {
+    return feuil3Profiles.reduce(
+      (acc, item) => {
+        const descriptor = describeRoadState(item.pavementState);
+        if (!descriptor) {
+          return acc;
+        }
+        if (descriptor.family === "travaux") {
+          acc.inProgress += 1;
+        } else if (descriptor.label === "Non aménagée") {
+          acc.notBuilt += 1;
+        } else if (descriptor.label === "RAS") {
+          acc.ras += 1;
+        }
+        return acc;
+      },
+      { inProgress: 0, notBuilt: 0, ras: 0 }
+    );
+  }, [feuil3Profiles]);
   const feuil5Profiles = useMemo(() => {
     if (activeSheetName !== "Feuil5") {
       return [];
@@ -4188,7 +4383,17 @@ export default function App() {
     const roadCodes = uniqueValues(allRoads.map((item) => item.roadCode));
     const roadDesignations = uniqueValues(allRoads.map((item) => item.designation));
     const surfaceTypes = uniqueValues([...allRoads.map((item) => item.surfaceType), "BB", "Mixte", "BB/Pavés", "Pavés"]);
-    const pavementStates = uniqueValues([...allRoads.map((item) => item.pavementState), "Bon", "Moy", "Mau", "Mauvais"]);
+    const pavementStates = uniqueValues([
+      ...allRoads.map((item) => item.pavementState),
+      "Bon",
+      "Moy",
+      "Moyen",
+      "Mau",
+      "Mauvais",
+      "RAS",
+      "En cours d'aménagement",
+      "Non aménagée"
+    ]);
     const drainageTypes = uniqueValues([...allRoads.map((item) => item.drainageType), "E,F", "C", "-"]);
     const drainageStates = uniqueValues([
       ...allRoads.map((item) => item.drainageState),
@@ -4755,10 +4960,10 @@ export default function App() {
                 <strong>Longueur:</strong> {selectedRoad.lengthM ?? "-"} m
               </p>
               <p>
-                <strong>État chaussée:</strong> {selectedRoad.pavementState || "-"}
+                <strong>État chaussée:</strong> {renderRoadState(selectedRoad.pavementState, true)}
               </p>
               <p>
-                <strong>État courant suivi:</strong> {latestMaintenance?.stateAfter || selectedRoad.pavementState || "-"}
+                <strong>État courant suivi:</strong> {renderRoadState(latestMaintenance?.stateAfter || selectedRoad.pavementState, true)}
               </p>
               <p>
                 <strong>Assainissement (type caniveaux / description):</strong> {selectedRoad.drainageType || "-"} /{" "}
@@ -4782,7 +4987,7 @@ export default function App() {
                     <strong>Type:</strong> {latestMaintenance.interventionType || "-"}
                   </p>
                   <p>
-                    <strong>État après:</strong> {latestMaintenance.stateAfter || "-"}
+                    <strong>État après:</strong> {renderRoadState(latestMaintenance.stateAfter, true)}
                   </p>
                   <p>
                     <strong>Solution appliquée:</strong> {latestMaintenance.solutionApplied || "-"}
@@ -4860,7 +5065,7 @@ export default function App() {
                     <strong>Début / fin :</strong> {decisionResult.road.startLabel || "-"} / {decisionResult.road.endLabel || "-"}
                   </p>
                   <p>
-                    <strong>État connu :</strong> {decisionResult.road.pavementState || "Non renseigné"}
+                    <strong>État connu :</strong> {renderRoadState(decisionResult.road.pavementState, true)}
                   </p>
                   <p>
                     <strong>Validation cause :</strong> {dynamicFeuil4Snapshot?.causeMatch || "-"}
@@ -4961,13 +5166,28 @@ export default function App() {
 
                 <div
                   className={`card ${
-                    isToDetermineIntervention(decisionResult.contextualIntervention) ? "card--warning" : ""
+                    decisionAlignment?.status.tone === "danger" || isToDetermineIntervention(decisionResult.contextualIntervention)
+                      ? "card--warning"
+                      : ""
                   }`}
                 >
-                  <h3>Intervention contextuelle tronçon</h3>
-                  <p>
-                    <strong>{decisionResult.contextualIntervention || "à déterminer (A D)"}</strong>
-                  </p>
+                  <h3>Alignement référentiel / calcul</h3>
+                  <div className="decision-alignment">
+                    <div className="decision-alignment__item">
+                      <span>Intervention du référentiel</span>
+                      <strong>{decisionAlignment?.referenceIntervention || "À préciser dans le référentiel"}</strong>
+                    </div>
+                    <div className="decision-alignment__item">
+                      <span>Recommandation calculée</span>
+                      <strong>{decisionAlignment?.computedRecommendation || "Aucune recommandation exploitable"}</strong>
+                    </div>
+                    <div className="decision-alignment__status">
+                      <span className={`status-pill status-pill--${decisionAlignment?.status.tone || "neutral"}`}>
+                        {decisionAlignment?.status.label || "Alignement incomplet"}
+                      </span>
+                      <p className="muted">{decisionAlignment?.status.message || "Comparaison indisponible."}</p>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="card card--full">
@@ -5077,7 +5297,7 @@ export default function App() {
                     <td>{road.lengthM ?? "-"}</td>
                     <td>{road.widthM ?? "-"}</td>
                     <td>{road.surfaceType || "-"}</td>
-                    <td>{road.pavementState || "-"}</td>
+                    <td>{renderRoadState(road.pavementState, true)}</td>
                     <td>{road.drainageType || "-"}</td>
                     <td>{road.drainageState || "-"}</td>
                   </tr>
@@ -7029,6 +7249,14 @@ export default function App() {
             </div>
           ) : null}
 
+          <div className="card card--spaced">
+            <h3>Périmètre du diagnostic</h3>
+            <p className="muted">
+              Cette fiche porte l'état de la chaussée, l'assainissement observé et l'intervention à prévoir. Les
+              compléments latéraux comme le stationnement et les trottoirs se renseignent dans l'onglet Compléments.
+            </p>
+          </div>
+
           <div className="cells-grid">
             {(["F", "G", "H", "I", "J", "K", "L"] as SheetColumnKey[]).map((column) => renderEditorField(column))}
           </div>
@@ -7157,8 +7385,16 @@ export default function App() {
             </div>
           ) : null}
 
+          <div className="card card--spaced">
+            <h3>Ce que vous renseignez ici</h3>
+            <p className="muted">
+              Cette fiche complète la section avec les largeurs utiles, le contexte d'assainissement, les trottoirs et
+              le stationnement. Le revêtement et l'état de la chaussée restent pilotés par l'onglet Diagnostic.
+            </p>
+          </div>
+
           <div className="cells-grid">
-            {(["H", "I", "J", "K", "L", "M", "N", "O", "P"] as SheetColumnKey[]).map((column) => renderEditorField(column))}
+            {(["H", "K", "L", "M", "N", "O", "P"] as SheetColumnKey[]).map((column) => renderEditorField(column))}
           </div>
 
           <div className="editor-actions">
@@ -7743,7 +7979,8 @@ export default function App() {
             <div className="card">
               <h3>Lecture métier</h3>
               <p className="muted">
-                Feuil3 porte l'état technique courant de la voie. C'est la feuille la plus proche du diagnostic terrain avant décision.
+                Diagnostic porte l'état technique courant de la section. C'est la vue de référence pour la chaussée,
+                l'assainissement observé et l'intervention à prévoir avant décision.
               </p>
             </div>
 
@@ -7779,6 +8016,24 @@ export default function App() {
                 })}
               </ul>
             </div>
+
+            <div className="card">
+              <h3>États spéciaux réseau</h3>
+              <ul className="count-list">
+                <li>
+                  <span>Travaux en cours</span>
+                  <strong>{feuil3SpecialStateCounts.inProgress}</strong>
+                </li>
+                <li>
+                  <span>Non aménagées</span>
+                  <strong>{feuil3SpecialStateCounts.notBuilt}</strong>
+                </li>
+                <li>
+                  <span>RAS</span>
+                  <strong>{feuil3SpecialStateCounts.ras}</strong>
+                </li>
+              </ul>
+            </div>
           </section>
         </div>
         <section className="panel table-panel table-panel--full sheet-print-view">
@@ -7790,7 +8045,7 @@ export default function App() {
             <div>
               <h2>{activeSheet ? getSheetDisplayName(activeSheet.name) : "Diagnostic"}</h2>
               <p className="muted">
-                Profil technique détaillé des voies: chaussée, assainissement, trottoirs et nature d'intervention recommandée.
+                Diagnostic technique des sections: état de la chaussée, assainissement et intervention à prévoir.
               </p>
             </div>
             <div className="sheet-header-actions">
@@ -7930,7 +8185,7 @@ export default function App() {
                           <td>{formatMeasurementNumber(item.lengthM)}</td>
                           <td>{formatMeasurementNumber(item.facadeWidthM)}</td>
                           <td>{toDisplay(item.surfaceType)}</td>
-                          <td>{toDisplay(item.pavementState)}</td>
+                          <td>{renderRoadState(item.pavementState, true)}</td>
                           <td>{toDisplay(item.drainageType)}</td>
                           <td>{toDisplay(item.drainageState)}</td>
                           <td>{formatMeasurementNumber(item.sidewalkMinM)}</td>
@@ -7968,7 +8223,8 @@ export default function App() {
             <div className="card">
               <h3>Lecture métier</h3>
               <p className="muted">
-                Feuil5 enrichit Feuil3 avec les usages latéraux de la voie: stationnement, trottoirs et niveau d'assainissement.
+                Compléments sert à documenter ce qui gravite autour de la section: largeur utile, trottoirs,
+                stationnement et contexte d'assainissement. Le revêtement et l'état de chaussée restent dans Diagnostic.
               </p>
             </div>
 
@@ -8020,7 +8276,7 @@ export default function App() {
             <div>
               <h2>{activeSheet ? getSheetDisplayName(activeSheet.name) : "Compléments"}</h2>
               <p className="muted">
-                Compléments techniques des sections: assainissement, largeur minimale, trottoirs et stationnement, rattachés à la même voie centrale.
+                Compléments latéraux des sections: largeurs utiles, trottoirs, stationnement et contexte d'assainissement.
               </p>
             </div>
             <div className="sheet-header-actions">
@@ -8042,7 +8298,7 @@ export default function App() {
                   id="feuil5-search"
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Voie, désignation, assainissement, stationnement"
+                  placeholder="Voie, désignation, assainissement, trottoirs, stationnement"
                 />
               </div>
               <div className="feuil2-filter">
@@ -8062,44 +8318,32 @@ export default function App() {
               <div className="card feuil2-group" key={group.sapCode}>
                 <div className="dashboard-card__header">
                   <h3>{group.sapCode}</h3>
-                  <span className="status-pill">{group.rows.length} section(s)</span>
+                  <span className="status-pill">{group.rows.length} complément(s)</span>
                 </div>
                 <div className="table-wrap feuil2-table-wrap">
                   <table className="table--feuil5">
                     <thead>
                       <tr>
-                        <th className="col-actions" rowSpan={3}>Action</th>
-                        <th rowSpan={3}>N°</th>
-                        <th rowSpan={3}>N° tronçon</th>
-                        <th rowSpan={3}>N° sections</th>
-                        <th rowSpan={3}>Voies</th>
-                        <th rowSpan={3}>Désignation</th>
-                        <th rowSpan={3}>Début</th>
-                        <th rowSpan={3}>Fin</th>
-                        <th rowSpan={3}>Longueur (m)</th>
-                        <th rowSpan={3}>Largeur min. façade (m)</th>
-                        <th colSpan={2}>CHAUSSÉE (en %)</th>
+                        <th className="col-actions" rowSpan={2}>Action</th>
+                        <th rowSpan={2}>N°</th>
+                        <th rowSpan={2}>N° tronçon</th>
+                        <th rowSpan={2}>N° section</th>
+                        <th rowSpan={2}>Voies</th>
+                        <th rowSpan={2}>Désignation</th>
+                        <th rowSpan={2}>Début</th>
+                        <th rowSpan={2}>Fin</th>
+                        <th rowSpan={2}>Longueur (m)</th>
+                        <th rowSpan={2}>Largeur min. façade (m)</th>
                         <th colSpan={2}>ASSAINISSEMENT</th>
-                        <th rowSpan={3}>Largeur min. trottoirs (m)</th>
+                        <th rowSpan={2}>Largeur min. trottoirs (m)</th>
                         <th colSpan={3}>STATIONNEMENT</th>
                       </tr>
                       <tr>
-                        <th>Nature du revêtement</th>
-                        <th>État de la chaussée</th>
                         <th>Type</th>
                         <th>État</th>
                         <th>Gauche</th>
                         <th>Droit</th>
                         <th>Autres</th>
-                      </tr>
-                      <tr>
-                        <th>&nbsp;</th>
-                        <th>&nbsp;</th>
-                        <th>caniveaux</th>
-                        <th>description</th>
-                        <th>&nbsp;</th>
-                        <th>&nbsp;</th>
-                        <th>&nbsp;</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -8169,8 +8413,6 @@ export default function App() {
                           <td>{toDisplay(item.endLabel)}</td>
                           <td>{formatMeasurementNumber(item.lengthM)}</td>
                           <td>{formatMeasurementNumber(item.facadeWidthM)}</td>
-                          <td>{toDisplay(item.surfaceType)}</td>
-                          <td>{toDisplay(item.pavementState)}</td>
                           <td>{toDisplay(item.drainageType)}</td>
                           <td className={normalizeLabel(item.drainageState) === "BON" ? "" : "cell-warning"}>
                             {toDisplay(item.drainageState)}
@@ -8189,7 +8431,7 @@ export default function App() {
 
             {feuil5Groups.length === 0 ? (
               <div className="card">
-                <p className="muted">{isLoadingRows ? "Chargement..." : "Aucun profil Feuil5 disponible."}</p>
+                <p className="muted">{isLoadingRows ? "Chargement..." : "Aucun complément Feuil5 disponible."}</p>
               </div>
             ) : null}
           </div>
