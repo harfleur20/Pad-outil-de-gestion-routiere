@@ -14,6 +14,7 @@
     "typecheck": "tsc -p app/web/tsconfig.json --noEmit",
     "build:web": "vite build --config app/web/vite.config.ts",
     "build": "npm run typecheck && npm run build:web",
+    "build:seed-db": "electron scripts/build-seed-db.cjs",
     "dist:win": "npm run build && electron-builder --win nsis --publish never",
     "preview:web": "vite preview --config app/web/vite.config.ts"
   },
@@ -47,6 +48,12 @@
       "app/electron/**/*",
       "app/web/dist/**/*",
       "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "app/electron/assets/pad-maintenance.seed.db",
+        "to": "pad-maintenance.seed.db"
+      }
     ],
     "win": {
       "icon": "app/electron/assets/icon.ico",

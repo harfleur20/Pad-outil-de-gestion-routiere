@@ -8,3 +8,6 @@ data-test/
 *.db-shm
 *.db-wal
 release/
+.tmp/
+docs/generated/
+!app/electron/assets/pad-maintenance.seed.db

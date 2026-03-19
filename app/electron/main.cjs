@@ -35,6 +35,11 @@ if (process.platform === "win32") {
   app.setAppUserModelId("cm.pad.maintenance");
 }
 
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) {
+  app.quit();
+}
+
 function createMainWindow() {
   const win = new BrowserWindow({
     show: false,
@@ -582,6 +587,7 @@ function copyMaintenanceAttachment(sourcePath) {
 function getStartupErrorMessage(error) {
   const details = error instanceof Error ? error.message : String(error);
   const nodeModuleMismatch = details.includes("NODE_MODULE_VERSION") || details.includes("better_sqlite3.node");
+  const databaseLocked = /database is locked|SQLITE_BUSY/i.test(details);
 
   if (nodeModuleMismatch) {
     return [
@@ -596,7 +602,46 @@ function getStartupErrorMessage(error) {
     ].join("\n");
   }
 
+  if (databaseLocked) {
+    return [
+      "La base PAD est déjà utilisée par une autre instance ou par une opération encore en cours.",
+      "",
+      "Fermez les autres fenêtres PAD puis relancez le logiciel.",
+      "",
+      `Detail technique: ${details}`
+    ].join("\n");
+  }
+
   return `Erreur de demarrage:\n${details}`;
+}
+
+function isDatabaseLockError(error) {
+  const details = error instanceof Error ? error.message : String(error);
+  return /database is locked|SQLITE_BUSY/i.test(details);
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function initializeDataLayerWithRetry() {
+  const { setupDataLayer } = require("./services/data-layer.cjs");
+  const attempts = 6;
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return setupDataLayer({ app });
+    } catch (error) {
+      lastError = error;
+      if (!isDatabaseLockError(error) || attempt === attempts) {
+        throw error;
+      }
+      await delay(500);
+    }
+  }
+
+  throw lastError;
 }
 
 process.on("unhandledRejection", (reason) => {
@@ -607,8 +652,7 @@ async function bootstrap() {
   try {
     createSplashWindow();
     setSplashStage("Initialisation du logiciel", "Préparation de l'environnement", 18);
-    const { setupDataLayer } = require("./services/data-layer.cjs");
-    dataLayer = setupDataLayer({ app });
+    dataLayer = await initializeDataLayerWithRetry();
     setSplashStage("Chargement du référentiel", "Ouverture des catalogues PAD", 68);
     registerIpcHandlers();
     createMainWindow();
@@ -638,6 +682,19 @@ async function bootstrap() {
     app.quit();
   }
 }
+
+app.on("second-instance", () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) {
+      mainWindow.restore();
+    }
+    mainWindow.focus();
+    return;
+  }
+  if (splashWindow && !splashWindow.isDestroyed()) {
+    splashWindow.focus();
+  }
+});
 
 app.whenReady().then(bootstrap);
 

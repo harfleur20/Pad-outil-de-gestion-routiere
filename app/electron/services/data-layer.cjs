@@ -71,7 +71,7 @@ const SHEET_COLUMN_LABELS = {
   },
   Feuil2: {
     A: "N° troncon",
-    B: "N° sections",
+    B: "N° section",
     C: "Voies",
     D: "Designation",
     E: "Debut",
@@ -107,7 +107,7 @@ const SHEET_COLUMN_LABELS = {
   },
   Feuil5: {
     A: "N° troncon",
-    B: "N° sections",
+    B: "N° section",
     C: "Voies",
     D: "Designation",
     E: "Debut",
@@ -124,7 +124,7 @@ const SHEET_COLUMN_LABELS = {
     P: "Stationnement autre"
   },
   Feuil6: {
-    A: "N°",
+    A: "SAP",
     B: "Type de voie",
     C: "Code voie",
     D: "Lineaire (ml)",
@@ -147,6 +147,7 @@ const COLUMN_KEYS = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L",
 const DB_COLUMN_KEYS = COLUMN_KEYS.map((key) => `col_${key.toLowerCase()}`);
 const DB_COLUMN_MAP = Object.fromEntries(COLUMN_KEYS.map((key, index) => [key, DB_COLUMN_KEYS[index]]));
 const DEFAULT_INTERVENTION_TEXT = "a determiner (A D)";
+const BUNDLED_SEED_DB_FILENAME = "pad-maintenance.seed.db";
 const SOLUTION_TEMPLATES_SEED = [
   {
     templateKey: "REPRISE_SURFACE_CHAUSSEE",
@@ -300,6 +301,7 @@ function setupDataLayer({ app }) {
   const dbPath = path.join(dataDir, "pad-maintenance.db");
   const db = new Database(dbPath);
   db.pragma("journal_mode = WAL");
+  db.pragma("busy_timeout = 5000");
   db.pragma("foreign_keys = ON");
 
   preEnsureLegacyColumns(db);
@@ -311,16 +313,32 @@ function setupDataLayer({ app }) {
   seedDrainageRules(db);
 
   if (isDatabaseEmpty(db)) {
-    const autoPath = resolveDefaultExcelPath();
-    if (autoPath) {
+    const bundledSeedPath = resolveBundledSeedDatabasePath();
+    let restoredFromSeed = false;
+    if (bundledSeedPath) {
       try {
-        importFromExcelInternal(db, autoPath);
+        restoreBundledSeedDatabase(db, bundledSeedPath);
+        restoredFromSeed = true;
       } catch (error) {
-        console.error("[PAD] Import initial impossible:", error.message);
+        console.error("[PAD] Chargement de la base embarquee impossible:", error.message);
+      }
+    }
+
+    if (!restoredFromSeed) {
+      const autoPath = resolveDefaultExcelPath();
+      if (autoPath) {
+        try {
+          importFromExcelInternal(db, autoPath);
+        } catch (error) {
+          console.error("[PAD] Import initial impossible:", error.message);
+        }
       }
     }
   }
 
+  seedSolutionCatalog(db);
+  seedDeflectionRules(db);
+  seedDrainageRules(db);
   rebuildNormalizedCatalogs(db);
   migrateLegacySolutionMapping(db);
 
@@ -1229,7 +1247,9 @@ function resolveSheet(sheetName) {
 function rebuildNormalizedCatalogs(db) {
   const tx = db.transaction(() => {
     repairRoadCodesInSourceSheets(db);
+    repairFeuil6SapCodes(db);
     repairSapAssignmentsFromFeuil6(db);
+    repairTronconNumbersFromSectionNo(db);
     const roads = buildRoadCatalog(db);
     const roadAliases = buildRoadAliasCatalog(db, roads);
     const degradationItems = buildDegradationCatalog(db);
@@ -2555,6 +2575,76 @@ function resolveDefaultExcelPath() {
   return null;
 }
 
+function resolveBundledSeedDatabasePath() {
+  const candidates = [
+    process.env.PAD_SEED_DB_PATH,
+    process.resourcesPath ? path.join(process.resourcesPath, BUNDLED_SEED_DB_FILENAME) : null,
+    path.join(__dirname, "..", "assets", BUNDLED_SEED_DB_FILENAME)
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function listTableColumns(db, tableName, databaseName = "main") {
+  return db
+    .prepare(`PRAGMA ${databaseName}.table_info(${tableName})`)
+    .all()
+    .map((row) => String(row.name || ""))
+    .filter(Boolean);
+}
+
+function seedTableExists(db, tableName, databaseName = "seed_db") {
+  return Boolean(
+    db
+      .prepare(`SELECT 1 AS ok FROM ${databaseName}.sqlite_master WHERE type = 'table' AND name = ? LIMIT 1`)
+      .get(tableName)
+  );
+}
+
+function restoreBundledSeedDatabase(db, seedPath) {
+  if (!seedPath || !fs.existsSync(seedPath)) {
+    throw new Error("Base embarquee introuvable.");
+  }
+
+  const previousForeignKeys = Number(db.pragma("foreign_keys", { simple: true })) ? 1 : 0;
+
+  try {
+    db.pragma("foreign_keys = OFF");
+    db.prepare("ATTACH DATABASE ? AS seed_db").run(seedPath);
+
+    const tx = db.transaction(() => {
+      for (const tableName of BACKUP_TABLES) {
+        if (!tableExists(db, tableName) || !seedTableExists(db, tableName)) {
+          continue;
+        }
+
+        const targetColumns = listTableColumns(db, tableName, "main");
+        const seedColumns = new Set(listTableColumns(db, tableName, "seed_db"));
+        const commonColumns = targetColumns.filter((column) => seedColumns.has(column));
+        if (commonColumns.length === 0) {
+          continue;
+        }
+
+        db.prepare(`DELETE FROM ${tableName}`).run();
+        const columnSql = commonColumns.join(", ");
+        db.prepare(`INSERT INTO ${tableName} (${columnSql}) SELECT ${columnSql} FROM seed_db.${tableName}`).run();
+      }
+    });
+
+    tx();
+  } finally {
+    try {
+      db.prepare("DETACH DATABASE seed_db").run();
+    } catch {}
+    db.pragma(`foreign_keys = ${previousForeignKeys ? "ON" : "OFF"}`);
+  }
+}
+
 function importFromExcelInternal(db, excelPath) {
   if (!excelPath || !fs.existsSync(excelPath)) {
     throw new Error("Fichier Excel introuvable.");
@@ -2626,7 +2716,7 @@ function listSheetRows(db, sheetName, filters = {}) {
 
 function getRequiredSheetColumns(sheetName) {
   if (sheetName === "Feuil2") {
-    return ["A", "B", "C"];
+    return ["B", "C"];
   }
   if (sheetName === "Feuil3") {
     return ["A", "F", "G", "H", "I", "J", "L"];
@@ -2635,7 +2725,7 @@ function getRequiredSheetColumns(sheetName) {
     return ["C", "H", "K", "L", "M"];
   }
   if (sheetName === "Feuil6") {
-    return ["B", "C", "D", "E", "F", "G"];
+    return ["A", "B", "C", "D", "E", "F", "G"];
   }
   if (sheetName === "Feuil7") {
     return ["A", "B", "C", "G"];
@@ -2648,7 +2738,6 @@ function getRequiredSheetColumns(sheetName) {
 
 function getSheetFieldRequiredMessage(sheetName, column) {
   if (sheetName === "Feuil2") {
-    if (column === "A") return "Veuillez renseigner le numéro du tronçon.";
     if (column === "B") return "Veuillez renseigner le numéro de section.";
     if (column === "C") return "Veuillez choisir la voie concernée.";
   }
@@ -2669,6 +2758,7 @@ function getSheetFieldRequiredMessage(sheetName, column) {
     if (column === "M") return "Veuillez renseigner la largeur minimale des trottoirs.";
   }
   if (sheetName === "Feuil6") {
+    if (column === "A") return "Veuillez choisir le SAP.";
     if (column === "B") return "Veuillez renseigner le type de voie.";
     if (column === "C") return "Veuillez renseigner le code de la voie.";
     if (column === "D") return "Veuillez renseigner le linéaire en mètres.";
@@ -2729,6 +2819,37 @@ function buildMergedSheetCells(current = null, payload = {}) {
       cells[key] = toText(payload[key]);
     } else {
       cells[key] = current ? toText(current[key]) : "";
+    }
+  }
+  return cells;
+}
+
+function parseSectionNoParts(sectionNo) {
+  const match = toText(sectionNo).match(/^([1-9][0-9]?)_([1-9][0-9]*)$/);
+  if (!match) {
+    return null;
+  }
+  return {
+    sapIndex: match[1],
+    tronconNo: String(Number(match[2]))
+  };
+}
+
+function deriveTronconNoFromSectionNo(sectionNo) {
+  return parseSectionNoParts(sectionNo)?.tronconNo || "";
+}
+
+function applyDerivedSheetCells(sheetName, cells) {
+  if (sheetName === "Feuil2" || sheetName === "Feuil5") {
+    const derivedTronconNo = deriveTronconNoFromSectionNo(cells.B);
+    if (derivedTronconNo) {
+      cells.A = derivedTronconNo;
+    }
+  }
+  if (sheetName === "Feuil6") {
+    const sapCode = parseSapCode(cells.A, cells.A);
+    if (sapCode) {
+      cells.A = sapCode;
     }
   }
   return cells;
@@ -2836,11 +2957,15 @@ function validateSheetRowPayload(db, sheetName, cells, options = {}) {
   }
 
   if (sheetName === "Feuil2") {
-    if (toText(cells.A) && !/^[1-9][0-9]*$/.test(toText(cells.A))) {
-      throw new Error("Le numéro du tronçon doit être un nombre entier positif.");
-    }
     if (toText(cells.B) && !/^[1-9][0-9]*_[1-9][0-9]*$/.test(toText(cells.B))) {
-      throw new Error("Écrivez par exemple 1_1, 2_3 ou 6_1. Le nombre avant _ crée le groupe SAP.");
+      throw new Error("Écrivez par exemple 1_7 ou 4_12. Le nombre avant _ indique le SAP et le nombre après _ devient le tronçon.");
+    }
+    const derivedTronconNo = deriveTronconNoFromSectionNo(cells.B);
+    if (!derivedTronconNo) {
+      throw new Error("Le numéro de section doit suivre la forme SAP_tronçon, par exemple 1_7.");
+    }
+    if (toText(cells.A) && toText(cells.A) !== derivedTronconNo) {
+      throw new Error(`Le numéro du tronçon est déduit automatiquement du numéro de section (${derivedTronconNo}).`);
     }
     const lengthM = toNumber(cells.G);
     if (toText(cells.G) && (!Number.isFinite(lengthM) || Number(lengthM) <= 0)) {
@@ -2884,6 +3009,10 @@ function validateSheetRowPayload(db, sheetName, cells, options = {}) {
   }
 
   if (sheetName === "Feuil6") {
+    const sapCode = parseSapCode(cells.A, cells.A);
+    if (!sapCode) {
+      throw new Error("Veuillez choisir un SAP valide, par exemple SAP1 ou SAP4.");
+    }
     const linearM = toNumber(cells.D);
     if (toText(cells.D) && (!Number.isFinite(linearM) || Number(linearM) <= 0)) {
       throw new Error("Le linéaire doit être un nombre supérieur à 0.");
@@ -2908,7 +3037,17 @@ function validateSheetRowPayload(db, sheetName, cells, options = {}) {
   const editingRoadId = currentRoad?.id || 0;
 
   if ((sheetName === "Feuil2" || sheetName === "Feuil3" || sheetName === "Feuil5") && !draftRoad) {
-    throw new Error("La voie choisie doit déjà exister dans le référentiel central des voies.");
+    throw new Error("Cette voie n'est pas encore enregistrée dans Voies. Créez-la d'abord, puis revenez ici.");
+  }
+
+  if ((sheetName === "Feuil2" || sheetName === "Feuil5") && draftRoad) {
+    const sectionSapCode = parseSapCode(cells.B, cells.A);
+    const roadSapCode = toText(draftRoad.sapCode);
+    if (sectionSapCode && roadSapCode && sectionSapCode !== roadSapCode) {
+      throw new Error(
+        `Cette voie est classée dans ${roadSapCode}. Pour utiliser le numéro de section ${toText(cells.B)}, changez d'abord le SAP de la voie dans Voies.`
+      );
+    }
   }
 
   if (sheetName === "Feuil2" || sheetName === "Feuil5") {
@@ -2937,7 +3076,9 @@ function validateSheetRowPayload(db, sheetName, cells, options = {}) {
     });
 
     if (duplicateSection) {
-      throw new Error(`Cette section existe déjà pour cette voie (${toText(duplicateSection.sectionNo) || "-"}).`);
+      throw new Error(
+        `Cette section existe déjà pour cette voie sous le numéro ${toText(duplicateSection.sectionNo) || "-"}. Ouvrez la ligne existante si vous voulez la compléter.`
+      );
     }
   }
 
@@ -2957,7 +3098,9 @@ function validateSheetRowPayload(db, sheetName, cells, options = {}) {
     });
 
     if (duplicateSection) {
-      throw new Error(`Cette voie possède déjà un profil dans cette feuille (${toText(duplicateSection.roadCode) || "-"}).`);
+      throw new Error(
+        `Un diagnostic existe déjà pour cette voie (${toText(duplicateSection.roadCode) || "-"}). Ouvrez la ligne existante si vous voulez le mettre à jour.`
+      );
     }
   }
 
@@ -2972,7 +3115,9 @@ function validateSheetRowPayload(db, sheetName, cells, options = {}) {
       (road) => codeKey && normalizeRoadCode(road.roadCode) === codeKey && (!editingRoadId || Number(road.id) !== Number(editingRoadId))
     );
     if (duplicateByCode) {
-      throw new Error(`Ce code de voie existe déjà dans le répertoire (${toText(duplicateByCode.roadCode) || "-"}).`);
+      throw new Error(
+        `Une voie avec le code ${toText(duplicateByCode.roadCode) || "-"} existe déjà dans le logiciel. Ouvrez la voie existante si vous souhaitez la consulter ou la modifier.`
+      );
     }
 
     const duplicateByDesignation = roads.find(
@@ -2982,7 +3127,9 @@ function validateSheetRowPayload(db, sheetName, cells, options = {}) {
         (!editingRoadId || Number(road.id) !== Number(editingRoadId))
     );
     if (duplicateByDesignation) {
-      throw new Error(`Cette voie existe déjà dans le répertoire (${toText(duplicateByDesignation.designation) || "-"}).`);
+      throw new Error(
+        `Une voie nommée ${toText(duplicateByDesignation.designation) || "-"} existe déjà dans le logiciel. Ouvrez la voie existante au lieu d'en créer une nouvelle.`
+      );
     }
 
     const duplicateByBounds = roads.find(
@@ -2994,7 +3141,9 @@ function validateSheetRowPayload(db, sheetName, cells, options = {}) {
         (!editingRoadId || Number(road.id) !== Number(editingRoadId))
     );
     if (duplicateByBounds) {
-      throw new Error(`Cette combinaison début / fin existe déjà dans le répertoire (${toText(duplicateByBounds.designation) || "-"}).`);
+      throw new Error(
+        `Une voie existe déjà avec ce même début et cette même fin (${toText(duplicateByBounds.designation) || "-"}). Vérifiez la voie existante avant d'en créer une nouvelle.`
+      );
     }
   }
 
@@ -3011,9 +3160,13 @@ function validateSheetRowPayload(db, sheetName, cells, options = {}) {
       );
       if (duplicate) {
         if (referenceKey && normalizeText(duplicate.B) === referenceKey) {
-          throw new Error(`Cette référence existe déjà (${toText(duplicate.B) || "-"}).`);
+          throw new Error(
+            `La référence ${toText(duplicate.B) || "-"} existe déjà dans la liste. Ouvrez la ligne existante si vous voulez la compléter.`
+          );
         }
-        throw new Error(`Cette dégradation existe déjà (${toText(duplicate.C) || "-"}).`);
+        throw new Error(
+          `La dégradation ${toText(duplicate.C) || "-"} existe déjà dans la liste. Ouvrez la ligne existante si vous voulez la compléter.`
+        );
       }
     }
 
@@ -3021,7 +3174,9 @@ function validateSheetRowPayload(db, sheetName, cells, options = {}) {
       const labelKey = normalizeRoadCompareKey(cells.A);
       const duplicate = comparableRows.find((row) => labelKey && normalizeRoadCompareKey(row.A) === labelKey);
       if (duplicate) {
-        throw new Error(`Cette ligne existe déjà dans le programme d'évaluation (${toText(duplicate.A) || "-"}).`);
+        throw new Error(
+          `Le libellé ${toText(duplicate.A) || "-"} existe déjà dans le programme d'évaluation. Ouvrez la ligne existante si vous voulez le modifier.`
+        );
       }
     }
   }
@@ -3032,7 +3187,7 @@ function createSheetRow(db, sheetName, payload = {}) {
   const explicitRowNo = Number(payload.rowNo);
   const maxRowNo = db.prepare(`SELECT COALESCE(MAX(row_no), 0) AS maxRowNo FROM ${sheet.table}`).get().maxRowNo;
   const rowNo = Number.isFinite(explicitRowNo) && explicitRowNo > 0 ? explicitRowNo : maxRowNo + 1;
-  const cells = buildMergedSheetCells(null, payload);
+  const cells = applyDerivedSheetCells(sheet.name, buildMergedSheetCells(null, payload));
   validateSheetRowPayload(db, sheet.name, cells, { rowNo });
   const values = COLUMN_KEYS.map((key) => cells[key]);
 
@@ -3069,7 +3224,7 @@ function updateSheetRow(db, sheetName, rowId, payload = {}) {
 
   const explicitRowNo = Number(payload.rowNo);
   const rowNo = Number.isFinite(explicitRowNo) && explicitRowNo > 0 ? explicitRowNo : current.rowNo;
-  const cells = buildMergedSheetCells(current, payload);
+  const cells = applyDerivedSheetCells(sheet.name, buildMergedSheetCells(current, payload));
   validateSheetRowPayload(db, sheet.name, cells, {
     rowId: id,
     rowNo,
@@ -3696,7 +3851,14 @@ function listRoadSections(db, filters = {}) {
         source_payload AS sourcePayload
       FROM road_section
       ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
-      ORDER BY sap_code, troncon_no, section_no, designation
+      ORDER BY
+        sap_code,
+        CASE
+          WHEN INSTR(section_no, '_') > 0 THEN CAST(SUBSTR(section_no, INSTR(section_no, '_') + 1) AS INTEGER)
+          ELSE 999999
+        END,
+        section_no,
+        designation
       LIMIT 5000
     `
     )
@@ -4283,7 +4445,7 @@ function assertMeasurementPkUniqueness(db, campaignKey, pkLabel, pkM, excludedId
     const sameNumericPk = pkM !== null && toNumber(row.pkM) !== null && toNumber(row.pkM) === pkM;
     const sameLabelPk = nextPkKey && normalizeMeasurementPkKey(row.pkLabel) === nextPkKey;
     if (sameNumericPk || sameLabelPk) {
-      throw new Error("Une ligne avec ce PK existe déjà dans cette campagne.");
+      throw new Error("Ce PK est déjà enregistré dans cette campagne. Modifiez la ligne existante si nécessaire.");
     }
   }
 }
@@ -5551,6 +5713,43 @@ function buildFeuil6SapAssignments(rowsFeuil6) {
   return sapByRoadKey;
 }
 
+function repairFeuil6SapCodes(db) {
+  if (!tableExists(db, "sheet_feuil6")) {
+    return;
+  }
+
+  const rows = listSheetRows(db, "Feuil6", { limit: 5000 });
+  if (rows.length === 0) {
+    return;
+  }
+
+  let currentSap = "";
+  const updateSapCode = db.prepare(`
+    UPDATE sheet_feuil6
+    SET col_a = ?, updated_at = datetime('now')
+    WHERE id = ?
+  `);
+
+  for (const row of rows) {
+    const explicitSap = parseSapCode(row.A, row.A);
+    if (explicitSap) {
+      currentSap = explicitSap;
+    }
+
+    const roadCode = toText(row.C);
+    const designation = toText(row.E);
+    if (!currentSap || !isRoadLabel(roadCode, designation)) {
+      continue;
+    }
+
+    if (toText(row.A) === currentSap) {
+      continue;
+    }
+
+    updateSapCode.run(currentSap, Number(row.id));
+  }
+}
+
 function alignSectionNoWithSap(sectionNo, sapCode) {
   const text = toText(sectionNo);
   const sectionMatch = text.match(/^([1-9][0-9]?)_(.+)$/);
@@ -5565,6 +5764,30 @@ function alignSectionNoWithSap(sectionNo, sapCode) {
   }
 
   return `${targetPrefix}_${sectionMatch[2]}`;
+}
+
+function repairTronconNumbersFromSectionNo(db) {
+  for (const sheetName of ["Feuil2", "Feuil5"]) {
+    if (!tableExists(db, resolveSheet(sheetName).table)) {
+      continue;
+    }
+
+    const sheet = resolveSheet(sheetName);
+    const rows = listSheetRows(db, sheetName, { limit: 5000 });
+    const updateTronconNo = db.prepare(`
+      UPDATE ${sheet.table}
+      SET col_a = ?, updated_at = datetime('now')
+      WHERE id = ?
+    `);
+
+    for (const row of rows) {
+      const derivedTronconNo = deriveTronconNoFromSectionNo(row.B);
+      if (!derivedTronconNo || derivedTronconNo === toText(row.A)) {
+        continue;
+      }
+      updateTronconNo.run(derivedTronconNo, Number(row.id));
+    }
+  }
 }
 
 function repairSapAssignmentsFromFeuil6(db) {

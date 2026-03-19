@@ -113,15 +113,15 @@ function getEditableColumns(sheet: SheetDefinition | null): SheetColumnKey[] {
     return ["A", "B", "C", "D", "E", "F", "G"];
   }
   if (sheet.name === "Feuil6") {
-    return ["B", "C", "D", "E", "F", "G"];
+    return ["A", "B", "C", "D", "E", "F", "G"];
   }
   return sheet.columns;
 }
 
 function getSheetFieldPlaceholder(sheetName: string | undefined, column: SheetColumnKey) {
   if (sheetName === "Feuil2") {
-    if (column === "A") return "Ex: 1";
-    if (column === "B") return "Ex: 1_1";
+    if (column === "A") return "Calculé automatiquement";
+    if (column === "B") return "Ex: 1_7";
     if (column === "C") return "Ex: Rue 01 ou Bvd 02";
     if (column === "D") return "Ex: Rue des Archives";
     if (column === "E") return "Ex: Dangote";
@@ -144,7 +144,7 @@ function getSheetFieldPlaceholder(sheetName: string | undefined, column: SheetCo
   }
   if (sheetName === "Feuil5") {
     if (column === "A") return "Ex: 1";
-    if (column === "B") return "Ex: 1_1";
+    if (column === "B") return "Ex: 1_7";
     if (column === "C") return "Ex: Rue 01";
     if (column === "D") return "Ex: Rue des Archives";
     if (column === "E") return "Ex: Dangote";
@@ -161,7 +161,7 @@ function getSheetFieldPlaceholder(sheetName: string | undefined, column: SheetCo
     if (column === "P") return "Ex: Stationnement poids lourds";
   }
   if (sheetName === "Feuil6") {
-    if (column === "A") return "Ex: 1";
+    if (column === "A") return "Ex: SAP4";
     if (column === "B") return "Ex: Rue, Boulevard ou Avenue";
     if (column === "C") return "Ex: Rue.01";
     if (column === "D") return "Ex: 700";
@@ -192,10 +192,10 @@ function getSheetFieldPlaceholder(sheetName: string | undefined, column: SheetCo
 function getSheetFieldHelpText(sheetName: string | undefined, column: SheetColumnKey) {
   if (sheetName === "Feuil2") {
     if (column === "A") {
-      return "Écrivez le numéro du tronçon. Exemple : 1, 2, 3.";
+      return "Le tronçon est déduit automatiquement depuis le numéro de section. Exemple : 1_7 donne le tronçon 7.";
     }
     if (column === "B") {
-      return "Écrivez le numéro de section sous la forme 1_1, 2_3 ou 6_1. Le nombre avant le tiret bas (_) crée le groupe SAP automatiquement.";
+      return "Écrivez le numéro de section sous la forme SAP_tronçon. Exemple : 1_7 = SAP1, tronçon 7. Le préfixe SAP doit correspondre au SAP de la voie.";
     }
     if (column === "C") {
       return "Écrivez le code de la voie, par exemple Rue 01 ou Bvd 02.";
@@ -219,8 +219,8 @@ function getSheetFieldHelpText(sheetName: string | undefined, column: SheetColum
     if (column === "L") return "Travaux ou entretien à prévoir sur cette voie.";
   }
   if (sheetName === "Feuil5") {
-    if (column === "A") return "Numéro du tronçon.";
-    if (column === "B") return "Numéro de section, par exemple 1_1 ou 2_3.";
+    if (column === "A") return "Le tronçon est repris automatiquement depuis le numéro de section.";
+    if (column === "B") return "Numéro de section sous la forme SAP_tronçon, par exemple 1_7 ou 4_12. Le préfixe SAP doit correspondre au SAP de la voie.";
     if (column === "C") return "Code court de la voie.";
     if (column === "D") return "Nom complet de la voie.";
     if (column === "E") return "Nom du lieu où la section commence. Ce n'est pas une date.";
@@ -235,7 +235,7 @@ function getSheetFieldHelpText(sheetName: string | undefined, column: SheetColum
     if (column === "P") return "Autre information utile sur le stationnement ou l'occupation latérale.";
   }
   if (sheetName === "Feuil6") {
-    if (column === "A") return "Numéro d'ordre de la ligne dans le répertoire.";
+    if (column === "A") return "Choisissez le SAP de rattachement de cette voie, par exemple SAP1 ou SAP4.";
     if (column === "B") return "Choisissez le type de voie : Rue, Boulevard ou Avenue.";
     if (column === "C") return "Code court de la voie.";
     if (column === "D") return "Longueur totale en mètres.";
@@ -265,7 +265,7 @@ function getSheetFieldHelpText(sheetName: string | undefined, column: SheetColum
 
 function getRequiredSheetColumns(sheetName: string | undefined): SheetColumnKey[] {
   if (sheetName === "Feuil2") {
-    return ["A", "B", "C"];
+    return ["B", "C"];
   }
   if (sheetName === "Feuil3") {
     return ["A", "F", "G", "H", "I", "J", "L"];
@@ -274,7 +274,7 @@ function getRequiredSheetColumns(sheetName: string | undefined): SheetColumnKey[
     return ["C", "H", "K", "L", "M"];
   }
   if (sheetName === "Feuil6") {
-    return ["B", "C", "D", "E", "F", "G"];
+    return ["A", "B", "C", "D", "E", "F", "G"];
   }
   if (sheetName === "Feuil7") {
     return ["A", "B", "C", "G"];
@@ -291,7 +291,6 @@ function isSheetFieldRequired(sheetName: string | undefined, column: SheetColumn
 
 function getSheetFieldRequiredMessage(sheetName: string | undefined, column: SheetColumnKey) {
   if (sheetName === "Feuil2") {
-    if (column === "A") return "Veuillez renseigner le numéro du tronçon.";
     if (column === "B") return "Veuillez renseigner le numéro de section.";
     if (column === "C") return "Veuillez choisir la voie concernée.";
   }
@@ -312,6 +311,7 @@ function getSheetFieldRequiredMessage(sheetName: string | undefined, column: She
     if (column === "M") return "Veuillez renseigner la largeur minimale des trottoirs.";
   }
   if (sheetName === "Feuil6") {
+    if (column === "A") return "Veuillez choisir le SAP.";
     if (column === "B") return "Veuillez renseigner le type de voie.";
     if (column === "C") return "Veuillez renseigner le code de la voie.";
     if (column === "D") return "Veuillez renseigner le linéaire en mètres.";
@@ -359,14 +359,14 @@ function validateSheetDraft(
   }
 
   if (sheet.name === "Feuil2") {
-    const tronconNo = String(cells.A ?? "").trim();
     const sectionNo = String(cells.B ?? "").trim();
     const lengthM = parseNumberValue(cells.G);
-    if (tronconNo && !/^[1-9][0-9]*$/.test(tronconNo)) {
-      setSheetFieldError(fieldErrors, "A", "Le numéro du tronçon doit être un nombre entier positif.");
-    }
     if (sectionNo && !/^[1-9][0-9]*_[1-9][0-9]*$/.test(sectionNo)) {
-      setSheetFieldError(fieldErrors, "B", "Écrivez par exemple 1_1, 2_3 ou 6_1. Le nombre avant _ crée le groupe SAP.");
+      setSheetFieldError(
+        fieldErrors,
+        "B",
+        "Écrivez par exemple 1_7 ou 4_12. Le nombre avant _ indique le SAP et le nombre après _ devient le tronçon."
+      );
     }
     if (String(cells.G ?? "").trim() && (!Number.isFinite(lengthM) || Number(lengthM) <= 0)) {
       setSheetFieldError(fieldErrors, "G", "La longueur doit être un nombre supérieur à 0.");
@@ -409,8 +409,12 @@ function validateSheetDraft(
   }
 
   if (sheet.name === "Feuil6") {
+    const sapCode = parseFeuil6SapMarker(cells.A);
     const linearM = parseNumberValue(cells.D);
     const bounds = splitBoundsValue(cells.F);
+    if (String(cells.A ?? "").trim() && !sapCode) {
+      setSheetFieldError(fieldErrors, "A", "Veuillez saisir un SAP valide, par exemple SAP1 ou SAP5.");
+    }
     if (String(cells.D ?? "").trim() && (!Number.isFinite(linearM) || Number(linearM) <= 0)) {
       setSheetFieldError(fieldErrors, "D", "Le linéaire doit être un nombre supérieur à 0.");
     }
@@ -749,6 +753,11 @@ function parseFeuil2SapCode(row: SheetRow) {
     }
   }
   return "";
+}
+
+function deriveTronconNoFromSectionNo(sectionNo: unknown) {
+  const match = String(sectionNo ?? "").trim().match(/^[1-9][0-9]?_([1-9][0-9]*)$/);
+  return match ? String(Number(match[1])) : "";
 }
 
 function parseFeuil6SapMarker(value: unknown) {
@@ -1298,6 +1307,11 @@ export default function App() {
   const [isIntegrityAlertDismissed, setIsIntegrityAlertDismissed] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [pendingSheetDraft, setPendingSheetDraft] = useState<{
+    sheetName: string;
+    cells: Partial<Record<SheetColumnKey, string>>;
+    notice: string;
+  } | null>(null);
   const hasNotifiedAppReadyRef = useRef(false);
   const degradationEditorRef = useRef<HTMLDivElement | null>(null);
   const sheetEditorRef = useRef<HTMLElement | null>(null);
@@ -1553,7 +1567,7 @@ export default function App() {
           sourceRow,
           linkedRoad,
           sapCode: section.sapCode || linkedRoad?.sapCode || "",
-          tronconNo: section.tronconNo,
+          tronconNo: deriveTronconNoFromSectionNo(section.sectionNo) || section.tronconNo,
           sectionNo: section.sectionNo,
           roadLabel: section.roadCode,
           designation: section.designation,
@@ -1841,7 +1855,7 @@ export default function App() {
           sourceRow,
           linkedRoad,
           sapCode: section.sapCode || linkedRoad?.sapCode || "",
-          tronconNo: section.tronconNo,
+          tronconNo: deriveTronconNoFromSectionNo(section.sectionNo) || section.tronconNo,
           sectionNo: section.sectionNo,
           roadLabel: section.roadCode || linkedRoad?.roadCode || "",
           designation: section.designation || linkedRoad?.designation || "",
@@ -1951,11 +1965,13 @@ export default function App() {
   const loadAllRoads = useCallback(async () => {
     const roadList = await padApi.listRoads();
     setAllRoads(roadList);
+    return roadList;
   }, []);
 
   const loadAllRoadSections = useCallback(async () => {
     const sectionList = await padApi.listRoadSections();
     setAllRoadSections(sectionList);
+    return sectionList;
   }, []);
 
   const loadMeasurementCampaigns = useCallback(async () => {
@@ -2147,7 +2163,7 @@ export default function App() {
       if (!sapNumber) {
         return { tronconNo: "", sectionNo: "" };
       }
-    const prefix = `${sapNumber}_`;
+      const prefix = `${sapNumber}_`;
       const currentIndexes = allRoadSections
         .map((section) => String(section.sectionNo ?? "").trim())
         .filter((value) => value.startsWith(prefix))
@@ -2155,7 +2171,7 @@ export default function App() {
         .filter((value) => Number.isFinite(value) && value > 0);
       const nextIndex = currentIndexes.length > 0 ? Math.max(...currentIndexes) + 1 : 1;
       return {
-        tronconNo: sapNumber,
+        tronconNo: String(nextIndex),
         sectionNo: `${sapNumber}_${nextIndex}`
       };
     },
@@ -2186,12 +2202,12 @@ export default function App() {
         });
 
         if (existingRow) {
-          next.A = String(existingRow.A ?? "");
           next.B = String(existingRow.B ?? "");
+          next.A = deriveTronconNoFromSectionNo(existingRow.B) || String(existingRow.A ?? "");
         } else {
           const suggestion = suggestSectionForSap(road.sapCode);
-          next.A = next.A || suggestion.tronconNo;
-          next.B = next.B || suggestion.sectionNo;
+          next.A = suggestion.tronconNo;
+          next.B = suggestion.sectionNo;
         }
       }
 
@@ -2220,12 +2236,12 @@ export default function App() {
         });
 
         if (existingRow) {
-          next.A = String(existingRow.A ?? "");
           next.B = String(existingRow.B ?? "");
+          next.A = deriveTronconNoFromSectionNo(existingRow.B) || String(existingRow.A ?? "");
         } else {
           const suggestion = suggestSectionForSap(road.sapCode);
-          next.A = next.A || suggestion.tronconNo;
-          next.B = next.B || suggestion.sectionNo;
+          next.A = suggestion.tronconNo;
+          next.B = suggestion.sectionNo;
         }
       }
 
@@ -2245,6 +2261,7 @@ export default function App() {
       }
 
       if (sheetName === "Feuil6") {
+        next.A = road.sapCode || next.A || "";
         next.B = inferRoadTypeFromCode(road.roadCode) || next.B || "";
         next.C = road.roadCode;
         next.D = road.lengthM !== null && road.lengthM !== undefined ? String(road.lengthM) : next.D || "";
@@ -2273,6 +2290,16 @@ export default function App() {
           : null;
 
       if (sheetName === "Feuil2" || sheetName === "Feuil5") {
+        const sectionSapCode = parseFeuil2SapCode({
+          A: cells.A ?? "",
+          B: cells.B ?? ""
+        } as SheetRow);
+        const roadSapCode = draftRoad?.sapCode || "";
+        if (sectionSapCode && roadSapCode && sectionSapCode !== roadSapCode) {
+          fieldErrors.B = `Cette voie est classée dans ${toDisplay(roadSapCode)}. Pour utiliser le numéro de section ${toDisplay(cells.B)}, changez d'abord le SAP de la voie dans Voies.`;
+          return { fieldErrors, formError: fieldErrors.B };
+        }
+
         const sectionNo = normalizeLabel(cells.B);
         const startKey = normalizeLabel(cells.E);
         const endKey = normalizeLabel(cells.F);
@@ -2294,7 +2321,7 @@ export default function App() {
         });
 
         if (duplicateSection) {
-          fieldErrors.B = `Cette section existe déjà pour cette voie (${toDisplay(duplicateSection.sectionNo)}).`;
+          fieldErrors.B = `Cette section existe déjà pour cette voie sous le numéro ${toDisplay(duplicateSection.sectionNo)}. Ouvrez la ligne existante si vous voulez la compléter.`;
           return { fieldErrors, formError: fieldErrors.B };
         }
       }
@@ -2315,7 +2342,7 @@ export default function App() {
         });
 
         if (duplicateSection) {
-          fieldErrors.A = `Cette voie possède déjà un profil dans cette feuille (${toDisplay(duplicateSection.roadCode)}).`;
+          fieldErrors.A = `Un diagnostic existe déjà pour cette voie (${toDisplay(duplicateSection.roadCode)}). Ouvrez la ligne existante si vous voulez le mettre à jour.`;
           return { fieldErrors, formError: fieldErrors.A };
         }
       }
@@ -2330,7 +2357,7 @@ export default function App() {
           (road) => codeKey && normalizeRoadCompareKey(road.roadCode) === codeKey && (!draftRoad || road.id !== draftRoad.id)
         );
         if (duplicateByCode) {
-          fieldErrors.C = `Ce code de voie existe déjà dans le répertoire (${toDisplay(duplicateByCode.roadCode)}).`;
+          fieldErrors.C = `Une voie avec le code ${toDisplay(duplicateByCode.roadCode)} existe déjà dans le logiciel. Ouvrez la voie existante si vous souhaitez la consulter ou la modifier.`;
           return { fieldErrors, formError: fieldErrors.C };
         }
 
@@ -2341,7 +2368,7 @@ export default function App() {
             (!draftRoad || road.id !== draftRoad.id)
         );
         if (duplicateByDesignation) {
-          fieldErrors.E = `Cette voie existe déjà dans le répertoire (${toDisplay(duplicateByDesignation.designation)}).`;
+          fieldErrors.E = `Une voie nommée ${toDisplay(duplicateByDesignation.designation)} existe déjà dans le logiciel. Ouvrez la voie existante au lieu d'en créer une nouvelle.`;
           return { fieldErrors, formError: fieldErrors.E };
         }
 
@@ -2350,7 +2377,7 @@ export default function App() {
           return itineraryKey && roadItinerary === itineraryKey && (!draftRoad || road.id !== draftRoad.id);
         });
         if (duplicateByItinerary) {
-          fieldErrors.F = `Cette combinaison début / fin existe déjà dans le répertoire (${toDisplay(duplicateByItinerary.designation)}).`;
+          fieldErrors.F = `Une voie existe déjà avec ce même début et cette même fin (${toDisplay(duplicateByItinerary.designation)}). Vérifiez la voie existante avant d'en créer une nouvelle.`;
           return { fieldErrors, formError: fieldErrors.F };
         }
       }
@@ -2365,10 +2392,10 @@ export default function App() {
         );
         if (duplicate) {
           if (referenceKey && normalizeLabel(duplicate.B) === referenceKey) {
-            fieldErrors.B = `Cette référence existe déjà (${toDisplay(duplicate.B)}).`;
+            fieldErrors.B = `La référence ${toDisplay(duplicate.B)} existe déjà dans la liste. Ouvrez la ligne existante si vous voulez la compléter.`;
             return { fieldErrors, formError: fieldErrors.B };
           }
-          fieldErrors.C = `Cette dégradation existe déjà (${toDisplay(duplicate.C)}).`;
+          fieldErrors.C = `La dégradation ${toDisplay(duplicate.C)} existe déjà dans la liste. Ouvrez la ligne existante si vous voulez la compléter.`;
           return { fieldErrors, formError: fieldErrors.C };
         }
       }
@@ -2377,7 +2404,7 @@ export default function App() {
         const labelKey = normalizeRoadCompareKey(cells.A);
         const duplicate = comparableRows.find((row) => labelKey && normalizeRoadCompareKey(row.A) === labelKey);
         if (duplicate) {
-          fieldErrors.A = `Cette ligne existe déjà dans le programme d'évaluation (${toDisplay(duplicate.A)}).`;
+          fieldErrors.A = `Le libellé ${toDisplay(duplicate.A)} existe déjà dans le programme d'évaluation. Ouvrez la ligne existante si vous voulez le modifier.`;
           return { fieldErrors, formError: fieldErrors.A };
         }
       }
@@ -2397,7 +2424,11 @@ export default function App() {
           [column]: value
         };
 
-      const isRoadSelectorField =
+        if ((activeSheetName === "Feuil2" || activeSheetName === "Feuil5") && column === "B") {
+          next.A = deriveTronconNoFromSectionNo(value);
+        }
+
+        const isRoadSelectorField =
           (activeSheetName === "Feuil3" && (column === "A" || column === "B")) ||
           (activeSheetName === "Feuil5" && (column === "C" || column === "D")) ||
           (activeSheetName === "Feuil6" && (column === "C" || column === "E"));
@@ -2419,6 +2450,24 @@ export default function App() {
     setDraftFieldErrors({});
     setDraftFormError("");
   }, [activeSheetName]);
+
+  useEffect(() => {
+    if (!pendingSheetDraft || activeSheetName !== pendingSheetDraft.sheetName) {
+      return;
+    }
+
+    setEditingRowId(null);
+    setDraftCells({
+      ...createEmptyCells(editableColumns),
+      ...pendingSheetDraft.cells
+    });
+    setDraftFieldErrors({});
+    setDraftFormError("");
+    setNotice(pendingSheetDraft.notice);
+    setError("");
+    setPendingSheetDraft(null);
+    sheetEditorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [activeSheetName, editableColumns, pendingSheetDraft]);
 
   const resetMeasurementCampaignForm = useCallback(
     (roadId?: number | "") => {
@@ -3750,8 +3799,9 @@ export default function App() {
     endLabel: string;
     lengthM: number | null;
   }): SheetRowPayload {
+    const tronconNo = deriveTronconNoFromSectionNo(item.sectionNo) || item.tronconNo;
     return {
-      A: toSheetCellValue(item.tronconNo),
+      A: toSheetCellValue(tronconNo),
       B: toSheetCellValue(item.sectionNo),
       C: toSheetCellValue(item.roadLabel),
       D: toSheetCellValue(item.designation),
@@ -3779,8 +3829,9 @@ export default function App() {
     parkingRight: string;
     parkingOther: string;
   }): SheetRowPayload {
+    const tronconNo = deriveTronconNoFromSectionNo(item.sectionNo) || item.tronconNo;
     return {
-      A: toSheetCellValue(item.tronconNo),
+      A: toSheetCellValue(tronconNo),
       B: toSheetCellValue(item.sectionNo),
       C: toSheetCellValue(item.roadLabel),
       D: toSheetCellValue(item.designation),
@@ -3800,6 +3851,7 @@ export default function App() {
   }
 
   function buildFeuil6SourcePayload(item: {
+    sapCode: string;
     roadType: string;
     roadCode: string;
     linearM: number | null;
@@ -3808,6 +3860,7 @@ export default function App() {
     justification: string;
   }): SheetRowPayload {
     return {
+      A: toSheetCellValue(item.sapCode),
       B: toSheetCellValue(item.roadType),
       C: toSheetCellValue(item.roadCode),
       D: toSheetCellValue(item.linearM),
@@ -3825,6 +3878,9 @@ export default function App() {
     const nextCells = createEmptyCells(editableColumns);
     for (const column of editableColumns) {
       nextCells[column] = String(row[column] ?? "");
+    }
+    if (activeSheet.name === "Feuil2" || activeSheet.name === "Feuil5") {
+      nextCells.A = deriveTronconNoFromSectionNo(nextCells.B) || nextCells.A;
     }
 
     setEditingRowId(row.id);
@@ -3870,6 +3926,7 @@ export default function App() {
     setIsBusy(true);
     try {
       const payload = toPayload(editableColumns, draftCells);
+      let createdRow: SheetRow | null = null;
       const inferredSapCode =
         activeSheet.name === "Feuil2"
           ? parseFeuil2SapCode({
@@ -3891,11 +3948,11 @@ export default function App() {
           }`
         );
       } else {
-        await padApi.createSheetRow(activeSheet.name, payload);
+        createdRow = await padApi.createSheetRow(activeSheet.name, payload);
         setNotice(`Nouvelle ligne ajoutée.${isNewSap ? ` ${inferredSapCode} sera ajouté automatiquement à la liste des SAP.` : ""}`);
       }
 
-      await Promise.all([
+      const [, , , , , refreshedRoads] = await Promise.all([
         refreshStatus(),
         loadRows(),
         loadDashboardSummary(),
@@ -3911,6 +3968,23 @@ export default function App() {
       }
       resetDraft();
       setError("");
+
+      if (activeSheet.name === "Feuil6" && !editingRowId && createdRow) {
+        const createdRoad = resolveRoadFromFeuil6Row(createdRow, refreshedRoads ?? []);
+        if (createdRoad) {
+          const sectionDraft = autofillDraftFromRoad(
+            "Feuil2",
+            createEmptyCells(["A", "B", "C", "D", "E", "F", "G"]),
+            createdRoad
+          );
+          setPendingSheetDraft({
+            sheetName: "Feuil2",
+            cells: sectionDraft,
+            notice: `Voie ${toDisplay(createdRoad.roadCode)} créée. Vous pouvez maintenant enregistrer sa première section.`
+          });
+          setActiveView("sheet:Feuil2");
+        }
+      }
     } catch (err) {
       const message = toErrorMessage(err);
       setDraftFormError(message);
@@ -6979,7 +7053,7 @@ export default function App() {
       activeSheet.name === "Feuil2"
         ? "Choisissez d'abord une voie existante. Les informations d'identité sont reprises automatiquement ; vous ne saisissez ici que les informations de section."
         : activeSheet.name === "Feuil6"
-          ? "Ajoute ou modifie ici la voie maître utilisée dans tout le système. Renseignez séparément le début et la fin de la voie."
+          ? "Ajoute ou modifie ici la voie maître utilisée dans tout le système. Choisissez ou saisissez le SAP, puis renseignez séparément le début et la fin de la voie."
           : activeSheet.name === "Feuil3"
             ? "Choisissez d'abord une voie existante. Les informations d'identité sont reprises automatiquement ; vous ne saisissez ici que le diagnostic technique."
           : activeSheet.name === "Feuil5"
@@ -7135,7 +7209,12 @@ export default function App() {
           ) : null}
 
           <div className="cells-grid">
-            {(["A", "B"] as SheetColumnKey[]).map((column) => renderEditorField(column))}
+            <div className="cell-field">
+              <label htmlFor="feuil2-troncon-auto">N° tronçon</label>
+              <input id="feuil2-troncon-auto" value={draftCells.A ?? ""} readOnly placeholder="Calculé automatiquement" />
+              <p className="field-help">Le tronçon est repris automatiquement depuis la partie après `_` du numéro de section.</p>
+            </div>
+            {renderEditorField("B")}
           </div>
 
           <div className="editor-actions">
@@ -7419,6 +7498,8 @@ export default function App() {
 
     if (activeSheet.name === "Feuil6") {
       const bounds = splitBoundsValue(draftCells.F);
+      const sapOptions = centralSapCodes.length > 0 ? centralSapCodes : ["SAP1", "SAP2", "SAP3", "SAP4"];
+      const sapListId = sapOptions.length > 0 ? "feuil6-sap-suggestions" : undefined;
       const startSuggestions = uniqueValues(allRoads.map((item) => item.startLabel)).filter(Boolean);
       const endSuggestions = uniqueValues(allRoads.map((item) => item.endLabel)).filter(Boolean);
       const startListId = startSuggestions.length > 0 ? "feuil6-start-suggestions" : undefined;
@@ -7445,6 +7526,29 @@ export default function App() {
           {draftFormError ? <p className="modal-feedback modal-feedback--error">{draftFormError}</p> : null}
 
           <div className="cells-grid">
+            <div className={`cell-field${draftFieldErrors.A ? " cell-field--error" : ""}`}>
+              <label htmlFor="feuil6-sap-input">
+                SAP <span className="field-label__required"> *</span>
+              </label>
+              <input
+                id="feuil6-sap-input"
+                value={draftCells.A ?? ""}
+                className={draftFieldErrors.A ? "cell-field--error" : undefined}
+                list={sapListId}
+                placeholder="Ex: SAP5"
+                onChange={(event) => handleDraftCellChange("A", event.target.value)}
+              />
+              {sapListId ? (
+                <datalist id={sapListId}>
+                  {sapOptions.map((sapCode) => (
+                    <option key={`feuil6-sap-${sapCode}`} value={sapCode} />
+                  ))}
+                </datalist>
+              ) : null}
+              {draftFieldErrors.A ? <p className="field-error">{draftFieldErrors.A}</p> : null}
+              <p className="field-help">SAP de rattachement de la voie. Vous pouvez choisir un SAP existant ou saisir un nouveau code, par exemple SAP5.</p>
+            </div>
+
             {(["B", "C", "D", "E"] as SheetColumnKey[]).map((column) => renderEditorField(column))}
 
             <div className={`cell-field${draftFieldErrors.F ? " cell-field--error" : ""}`}>
@@ -8185,7 +8289,9 @@ export default function App() {
                           <td>{formatMeasurementNumber(item.lengthM)}</td>
                           <td>{formatMeasurementNumber(item.facadeWidthM)}</td>
                           <td>{toDisplay(item.surfaceType)}</td>
-                          <td>{renderRoadState(item.pavementState, true)}</td>
+                          <td className={normalizeLabel(item.pavementState) === "BON" ? "" : "cell-warning"}>
+                            {toDisplay(item.pavementState)}
+                          </td>
                           <td>{toDisplay(item.drainageType)}</td>
                           <td>{toDisplay(item.drainageState)}</td>
                           <td>{formatMeasurementNumber(item.sidewalkMinM)}</td>
