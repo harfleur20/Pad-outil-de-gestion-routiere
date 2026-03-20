@@ -264,10 +264,18 @@ export type DegradationItem = {
   name: string;
   causes: string[];
   solution: string;
-  solutionSource: "TEMPLATE" | "OVERRIDE" | "MISSING";
+  solutionSource: "TEMPLATE" | "OVERRIDE" | "DERIVED" | "MISSING";
   templateKey: string | null;
   preventiveCriterion: string;
   treatmentDetails: string;
+};
+
+export type DegradationCatalogPayload = {
+  id?: number;
+  name: string;
+  causes: string[];
+  preventiveCriterion?: string;
+  treatmentDetails?: string;
 };
 
 export type MaintenanceSolutionTemplate = {

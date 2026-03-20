@@ -8,6 +8,7 @@
   DecisionHistoryItem,
   DecisionResult,
   DegradationItem,
+  DegradationCatalogPayload,
   ImportPreview,
   MeasurementCampaignItem,
   MeasurementCampaignPayload,
@@ -176,6 +177,16 @@ export const padApi = {
   async listDegradations(): Promise<DegradationItem[]> {
     const bridge = requireBridge();
     return bridge.degradations.list();
+  },
+
+  async upsertDegradation(payload: DegradationCatalogPayload): Promise<DegradationItem | null> {
+    const bridge = requireBridge();
+    return bridge.degradations.upsert(payload);
+  },
+
+  async deleteDegradation(degradationId: number): Promise<{ deleted: boolean }> {
+    const bridge = requireBridge();
+    return bridge.degradations.delete(degradationId);
   },
 
   async listDrainageRules(): Promise<DrainageRule[]> {

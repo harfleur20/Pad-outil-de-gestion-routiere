@@ -1,6 +1,6 @@
 {
   "name": "projet-pad",
-  "version": "0.9.6",
+  "version": "0.9.8",
   "description": "Application desktop d'aide à la maintenance routière pour le PAD.",
   "author": "Five Design Group Sarl",
   "private": true,

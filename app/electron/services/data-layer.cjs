@@ -390,6 +390,8 @@ function setupDataLayer({ app }) {
     deleteRoadMeasurement: (measurementId) => deleteRoadMeasurement(db, measurementId),
     listSapSectors: () => listSapSectors(db),
     listDegradationCatalog: () => listDegradationCatalog(db),
+    upsertDegradationCatalogItem: (payload) => upsertDegradationCatalogItem(db, payload),
+    deleteDegradationCatalogItem: (degradationId) => deleteDegradationCatalogItem(db, degradationId),
     listDrainageRules: () => listDrainageRules(db),
     upsertDrainageRule: (payload) => upsertDrainageRule(db, payload),
     deleteDrainageRule: (ruleId) => deleteDrainageRule(db, ruleId),
@@ -1255,6 +1257,149 @@ function clearDegradationSolutionOverride(db, degradationCode) {
   }
   db.prepare("DELETE FROM degradation_solution_override_rel WHERE degradation_code = ?").run(degradationKey);
   return { degradationCode: degradationKey, cleared: true };
+}
+
+function parseDegradationCauseList(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return [...new Set(value.map((item) => toText(item)).filter(Boolean))];
+}
+
+function upsertDegradationCatalogItem(db, payload = {}) {
+  const id = Number(payload.id);
+  const name = toText(payload.name);
+  const causes = parseDegradationCauseList(payload.causes);
+  const preventiveCriterion = toText(payload.preventiveCriterion);
+  const treatmentDetails = toText(payload.treatmentDetails);
+
+  if (!name) {
+    throw new Error("Veuillez renseigner le nom de la dégradation.");
+  }
+  if (causes.length === 0) {
+    throw new Error("Ajoutez au moins une cause potentielle pour cette dégradation.");
+  }
+
+  const existingById =
+    Number.isFinite(id) && id > 0
+      ? db
+          .prepare(
+            `
+            SELECT id, degradation_code AS code, name
+            FROM degradation
+            WHERE id = ?
+          `
+          )
+          .get(id)
+      : null;
+
+  if (Number.isFinite(id) && id > 0 && !existingById) {
+    throw new Error("Dégradation introuvable.");
+  }
+
+  const degradationCode = existingById ? toText(existingById.code) : normalizeDegradationKey(name);
+  if (!degradationCode) {
+    throw new Error("Impossible de créer cette dégradation. Vérifiez son libellé.");
+  }
+
+  const duplicates = db
+    .prepare(
+      `
+      SELECT id, degradation_code AS code, name
+      FROM degradation
+      ORDER BY name
+    `
+    )
+    .all();
+
+  for (const row of duplicates) {
+    if (existingById && Number(row.id) === Number(existingById.id)) {
+      continue;
+    }
+    if (normalizeDegradationKey(row.name) === normalizeDegradationKey(name) || toText(row.code) === degradationCode) {
+      throw new Error(`La dégradation ${toText(row.name) || name} existe déjà. Ouvrez la ligne existante pour la modifier.`);
+    }
+  }
+
+  const tx = db.transaction(() => {
+    db.prepare(
+      `
+      INSERT INTO degradation (degradation_code, name)
+      VALUES (?, ?)
+      ON CONFLICT(degradation_code) DO UPDATE SET
+        name = excluded.name
+    `
+    ).run(degradationCode, name);
+
+    db.prepare(
+      `
+      INSERT INTO degradation_definition (
+        degradation_code,
+        category,
+        reference,
+        family,
+        subfamily,
+        notes,
+        preventive_criterion,
+        treatment_details,
+        updated_at
+      ) VALUES (?, '', '', '', '', '', ?, ?, datetime('now'))
+      ON CONFLICT(degradation_code) DO UPDATE SET
+        preventive_criterion = excluded.preventive_criterion,
+        treatment_details = excluded.treatment_details,
+        updated_at = datetime('now')
+    `
+    ).run(degradationCode, preventiveCriterion, treatmentDetails);
+
+    db.prepare("DELETE FROM degradation_cause WHERE degradation_code = ?").run(degradationCode);
+    const insertCause = db.prepare(
+      "INSERT OR IGNORE INTO degradation_cause (degradation_code, cause_text) VALUES (?, ?)"
+    );
+    for (const cause of causes) {
+      insertCause.run(degradationCode, cause);
+    }
+
+    if (!existingById) {
+      const roadIds = db.prepare("SELECT id FROM road ORDER BY id").all();
+      const insertRoadDegradation = db.prepare(
+        `
+        INSERT OR IGNORE INTO road_degradation (road_id, degradation_code, is_active)
+        VALUES (?, ?, 1)
+      `
+      );
+      for (const row of roadIds) {
+        insertRoadDegradation.run(Number(row.id), degradationCode);
+      }
+    }
+  });
+
+  tx();
+  return listDegradationCatalog(db).find((item) => item.code === degradationCode) || null;
+}
+
+function deleteDegradationCatalogItem(db, degradationId) {
+  const id = Number(degradationId);
+  if (!Number.isFinite(id) || id <= 0) {
+    throw new Error("Dégradation introuvable.");
+  }
+
+  const current = db
+    .prepare(
+      `
+      SELECT id, degradation_code AS code, name
+      FROM degradation
+      WHERE id = ?
+    `
+    )
+    .get(id);
+
+  if (!current) {
+    throw new Error("Dégradation introuvable.");
+  }
+
+  db.prepare("DELETE FROM degradation WHERE id = ?").run(id);
+  return { deleted: true, degradationCode: toText(current.code) };
 }
 
 function listSheetDefinitions() {
@@ -3641,7 +3786,7 @@ function getDataIntegrityReport(db) {
     "ROAD_MEASUREMENT_ORPHAN",
     "WARNING",
     scalar("SELECT COUNT(*) AS count FROM road_measurement WHERE road_id IS NULL"),
-    "Mesures non rattachees a une voie."
+    "Mesures de campagne non rattachees a une voie."
   );
 
   addIssue(
@@ -3680,7 +3825,7 @@ function getDataIntegrityReport(db) {
     "PROFILE_INPUT_EMPTY",
     "WARNING",
     totals.profileInputs === 0 ? 1 : 0,
-    "Feuil4 non alimentee en base technique."
+    "Evaluation non alimentee en base technique."
   );
 
   const status = issues.length === 0 ? "OK" : "WARNING";
@@ -5662,9 +5807,12 @@ function buildDegradationCatalog(db) {
       SELECT
         d.degradation_code AS code,
         d.name,
-        c.cause_text AS cause
+        c.cause_text AS cause,
+        dd.preventive_criterion AS preventiveCriterion,
+        dd.treatment_details AS treatmentDetails
       FROM degradation d
       LEFT JOIN degradation_cause c ON c.degradation_code = d.degradation_code
+      LEFT JOIN degradation_definition dd ON dd.degradation_code = d.degradation_code
       ORDER BY d.name, c.id
     `
     )
@@ -5680,12 +5828,16 @@ function buildDegradationCatalog(db) {
       map.set(code, {
         code,
         name: toText(row.name) || code.replace(/_/g, " "),
-        causes: []
+        causes: [],
+        preventiveCriterion: "",
+        treatmentDetails: ""
       });
     }
 
     const entry = map.get(code);
     entry.name = entry.name || toText(row.name) || code.replace(/_/g, " ");
+    entry.preventiveCriterion = entry.preventiveCriterion || toText(row.preventiveCriterion);
+    entry.treatmentDetails = entry.treatmentDetails || toText(row.treatmentDetails);
     const cause = toText(row.cause);
     if (isCauseLabel(cause)) {
       entry.causes.push(cause);
@@ -5700,14 +5852,19 @@ function buildDegradationCatalog(db) {
       uniqueCauses.push(fallbackCause);
     }
     const resolved = resolveSolutionForDegradation(degradationCode, templates, rules, overrides);
+    const referenceSolution = deriveReferenceTreatmentSolution(
+      resolved.solution,
+      entry.preventiveCriterion,
+      entry.treatmentDetails
+    );
 
     return {
       id: index + 1,
       code: degradationCode,
       name: entry.name,
       causes: uniqueCauses,
-      solution: resolved.solution,
-      solutionSource: resolved.source,
+      solution: referenceSolution,
+      solutionSource: referenceSolution !== resolved.solution ? "DERIVED" : resolved.source,
       templateKey: resolved.templateKey
     };
   });
@@ -5795,6 +5952,68 @@ function resolveSolutionForDegradation(degradationCode, templates, rules, overri
     source: "MISSING",
     templateKey: null
   };
+}
+
+function isMissingMaintenanceSolution(solution) {
+  return normalizeText(solution) === normalizeText("Solution a parametrer dans le catalogue de maintenance.");
+}
+
+function cleanReferenceTreatmentText(value) {
+  return toText(value).replace(/\s+/g, " ").trim();
+}
+
+function shortenReferenceTreatmentText(value, maxLength = 190) {
+  const text = cleanReferenceTreatmentText(value);
+  if (!text) {
+    return "";
+  }
+  if (text.length <= maxLength) {
+    return text;
+  }
+  const snippet = text.slice(0, maxLength + 1);
+  const cutIndex = Math.max(
+    snippet.lastIndexOf(". "),
+    snippet.lastIndexOf("; "),
+    snippet.lastIndexOf(": "),
+    snippet.lastIndexOf(", "),
+    snippet.lastIndexOf(" ")
+  );
+  const safeIndex = cutIndex >= 80 ? cutIndex : maxLength;
+  return `${snippet.slice(0, safeIndex).trim()}...`;
+}
+
+function deriveReferenceTreatmentSolution(solution, preventiveCriterion, treatmentDetails) {
+  const explicitSolution = cleanReferenceTreatmentText(solution);
+  if (explicitSolution && !isMissingMaintenanceSolution(explicitSolution)) {
+    return explicitSolution;
+  }
+
+  const normalizedCriterion = cleanReferenceTreatmentText(preventiveCriterion);
+  const detailLines = toText(treatmentDetails)
+    .split(/\n+/)
+    .map((line) => cleanReferenceTreatmentText(line))
+    .filter(Boolean);
+  const firstDetail = detailLines[0] || "";
+
+  if (normalizedCriterion) {
+    const criterionKey = normalizeText(normalizedCriterion);
+    const genericCriterion =
+      /LE TRAITEMENT COMPREND/.test(criterionKey) ||
+      /CRITERE PREVENTIF/.test(criterionKey) ||
+      /PHASES/.test(criterionKey) ||
+      /ETAPES/.test(criterionKey) ||
+      /:$/.test(normalizedCriterion);
+    if (genericCriterion && firstDetail) {
+      return shortenReferenceTreatmentText(firstDetail);
+    }
+    return shortenReferenceTreatmentText(normalizedCriterion);
+  }
+
+  if (firstDetail) {
+    return shortenReferenceTreatmentText(firstDetail);
+  }
+
+  return explicitSolution || "Solution a parametrer dans le catalogue de maintenance.";
 }
 
 function resolveRoad(roads, payload) {
@@ -6363,6 +6582,10 @@ function simplifyRoadDesignation(value) {
   text = text.replace(/\([^)]*\)/g, " ").replace(/\s+/g, " ").trim();
   text = text.replace(/\bTRON[CÇ]ON\b.*$/i, "").trim();
   text = text.replace(/\bDU\s+PK\b.*$/i, "").trim();
+  text = text.replace(
+    /\b(RUE|BVD|BOULEVARD|AV|AVENUE)\s+(DU|DES|DE\s+LA|DE\s+L'|DE)\s+(DU|DES|DE\s+LA|DE\s+L'|DE)\b/gi,
+    (_match, roadType, _firstArticle, secondArticle) => `${roadType} ${secondArticle}`
+  );
 
   const roadMatch = text.match(/((?:RUE|BVD|BOULEVARD|AV|AVENUE)[^,;]*)/i);
   if (roadMatch) {

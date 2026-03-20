@@ -25,7 +25,6 @@ import {
   Plus,
   Printer,
   RefreshCw,
-  Settings2,
   ShieldCheck,
   TriangleAlert,
   Trash2,
@@ -38,7 +37,6 @@ import type {
   DashboardSummary,
   DecisionHistoryItem,
   DecisionResult,
-  DrainageRule,
   DegradationItem,
   ImportPreview,
   MeasurementCampaignItem,
@@ -60,7 +58,6 @@ const DEFAULT_IMPORT_PATH = "C:\\Users\\harfl\\OneDrive\\Desktop\\programme ayis
 const MAX_ROWS = 1000;
 const MAX_HISTORY = 500;
 const MAX_MAINTENANCE_ROWS = 500;
-const DRAINAGE_OPERATORS: Array<DrainageRule["matchOperator"]> = ["CONTAINS", "EQUALS", "REGEX", "ALWAYS"];
 const MAINTENANCE_STATUSES: MaintenanceInterventionStatus[] = ["PREVU", "EN_COURS", "TERMINE"];
 const MAINTENANCE_TYPE_SUGGESTIONS = [
   "Entretien préventif",
@@ -514,6 +511,9 @@ function toSolutionSourceLabel(source: DegradationItem["solutionSource"]) {
   if (source === "TEMPLATE") {
     return "Modèle";
   }
+  if (source === "DERIVED") {
+    return "Importée";
+  }
   return "À paramétrer";
 }
 
@@ -801,6 +801,10 @@ function getDegradationOtherCauses(item: DegradationItem | null) {
   return item.causes.filter((cause) => String(cause ?? "").trim() && cause !== primaryCause);
 }
 
+function parseMultilineValues(value: string) {
+  return [...new Set(String(value || "").split(/\n+/).map((item) => item.replace(/\s+/g, " ").trim()).filter(Boolean))];
+}
+
 function formatDegradationCausePreview(item: DegradationItem) {
   const causes = item.causes.map((cause) => String(cause ?? "").trim()).filter(Boolean);
   if (causes.length === 0) {
@@ -813,8 +817,77 @@ function formatDegradationCausePreview(item: DegradationItem) {
   return causes.length > 2 ? `${preview} + ${causes.length - 2} autre(s)` : preview;
 }
 
+function isMissingMaintenanceSolutionText(value: string) {
+  return normalizeComparisonText(value) === normalizeComparisonText("Solution a parametrer dans le catalogue de maintenance.");
+}
+
+function deriveDegradationReferenceTreatment(item: Pick<DegradationItem, "solution" | "preventiveCriterion" | "treatmentDetails">) {
+  const explicitSolution = String(item.solution || "").trim();
+  if (explicitSolution && !isMissingMaintenanceSolutionText(explicitSolution)) {
+    return explicitSolution;
+  }
+
+  const preventiveCriterion = String(item.preventiveCriterion || "").trim();
+  const detailLines = String(item.treatmentDetails || "")
+    .split(/\n+/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  const firstDetail = detailLines[0] || "";
+  const preventiveKey = normalizeComparisonText(preventiveCriterion);
+  const genericCriterion =
+    /LE TRAITEMENT COMPREND/.test(preventiveKey) ||
+    /CRITERE PREVENTIF/.test(preventiveKey) ||
+    /PHASES/.test(preventiveKey) ||
+    /ETAPES/.test(preventiveKey) ||
+    /:$/.test(preventiveCriterion);
+
+  if (preventiveCriterion) {
+    return genericCriterion && firstDetail ? firstDetail : preventiveCriterion;
+  }
+  if (firstDetail) {
+    return firstDetail;
+  }
+  return explicitSolution;
+}
+
+function getTreatmentPhaseLines(value: string) {
+  const lines = String(value || "")
+    .split(/\n+/)
+    .map((line) =>
+      line
+        .replace(/\s+/g, " ")
+        .replace(/^[•\-\u2022]+\s*/, "")
+        .trim()
+    )
+    .filter(Boolean);
+
+  if (lines.length === 0) {
+    return [];
+  }
+
+  const firstLine = normalizeComparisonText(lines[0]);
+  if (/LE TRAITEMENT COMPREND|PHASES|ETAPES/.test(firstLine)) {
+    return lines.slice(1);
+  }
+
+  return lines;
+}
+
+function getTreatmentPhaseLabel(phaseCount: number) {
+  if (phaseCount <= 0) {
+    return "";
+  }
+  if (phaseCount === 1) {
+    return "Le traitement comprend 1 phase :";
+  }
+  if (phaseCount <= 3) {
+    return `Le traitement comprend ${phaseCount} phases :`;
+  }
+  return "Le traitement comprend plusieurs phases :";
+}
+
 function getDegradationReferenceTreatment(item: DegradationItem) {
-  return trimPreviewText(item.preventiveCriterion || item.solution || "", 220) || "-";
+  return trimPreviewText(deriveDegradationReferenceTreatment(item), 220) || "-";
 }
 
 function getSheetDisplayName(sheetName: string) {
@@ -1288,6 +1361,13 @@ export default function App() {
   const [decisionFormError, setDecisionFormError] = useState("");
   const [decisionResult, setDecisionResult] = useState<DecisionResult | null>(null);
   const [degradationSearch, setDegradationSearch] = useState("");
+  const [editingDegradationId, setEditingDegradationId] = useState<number | null>(null);
+  const [degradationNameDraft, setDegradationNameDraft] = useState("");
+  const [degradationCausesDraft, setDegradationCausesDraft] = useState("");
+  const [degradationPreventiveCriterionDraft, setDegradationPreventiveCriterionDraft] = useState("");
+  const [degradationTreatmentDetailsDraft, setDegradationTreatmentDetailsDraft] = useState("");
+  const [degradationFieldErrors, setDegradationFieldErrors] = useState<Record<string, string>>({});
+  const [degradationFormError, setDegradationFormError] = useState("");
   const [historyRows, setHistoryRows] = useState<DecisionHistoryItem[]>([]);
   const [historySap, setHistorySap] = useState("");
   const [historySearch, setHistorySearch] = useState("");
@@ -1322,17 +1402,6 @@ export default function App() {
   const [solutionFormError, setSolutionFormError] = useState("");
   const [shouldScrollToDegradationEditor, setShouldScrollToDegradationEditor] = useState(false);
   const [isDegradationEditorHighlighted, setIsDegradationEditorHighlighted] = useState(false);
-  const [drainageRules, setDrainageRules] = useState<DrainageRule[]>([]);
-  const [editingDrainageRuleId, setEditingDrainageRuleId] = useState<number | null>(null);
-  const [drainageRuleOrder, setDrainageRuleOrder] = useState("");
-  const [drainageRuleOperator, setDrainageRuleOperator] = useState<DrainageRule["matchOperator"]>("CONTAINS");
-  const [drainageRulePattern, setDrainageRulePattern] = useState("");
-  const [drainageRuleAskRequired, setDrainageRuleAskRequired] = useState(false);
-  const [drainageRuleNeedsAttention, setDrainageRuleNeedsAttention] = useState(false);
-  const [drainageRuleRecommendation, setDrainageRuleRecommendation] = useState("");
-  const [drainageRuleActive, setDrainageRuleActive] = useState(true);
-  const [drainageRuleFieldErrors, setDrainageRuleFieldErrors] = useState<Record<string, string>>({});
-  const [drainageRuleFormError, setDrainageRuleFormError] = useState("");
   const [maintenanceFieldErrors, setMaintenanceFieldErrors] = useState<Record<string, string>>({});
   const [maintenanceFormError, setMaintenanceFormError] = useState("");
 
@@ -1341,6 +1410,7 @@ export default function App() {
   const [isDecisionBusy, setIsDecisionBusy] = useState(false);
   const [isMeasurementLoading, setIsMeasurementLoading] = useState(false);
   const [isMeasurementBusy, setIsMeasurementBusy] = useState(false);
+  const [isDegradationBusy, setIsDegradationBusy] = useState(false);
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const [isMaintenanceLoading, setIsMaintenanceLoading] = useState(false);
   const [isMaintenanceBusy, setIsMaintenanceBusy] = useState(false);
@@ -1348,13 +1418,13 @@ export default function App() {
   const [isBackupBusy, setIsBackupBusy] = useState(false);
   const [isReportingBusy, setIsReportingBusy] = useState(false);
   const [isSolutionBusy, setIsSolutionBusy] = useState(false);
-  const [isDrainageRuleBusy, setIsDrainageRuleBusy] = useState(false);
   const [isAttachmentBusy, setIsAttachmentBusy] = useState(false);
   const supportsMaintenanceAttachments =
     typeof window.padApp?.maintenance?.pickAttachment === "function" &&
     typeof window.padApp?.maintenance?.openAttachment === "function";
   const [isImportAssistantCollapsed, setIsImportAssistantCollapsed] = useState(false);
   const [isIntegrityAlertDismissed, setIsIntegrityAlertDismissed] = useState(false);
+  const [shouldScrollToIntegritySection, setShouldScrollToIntegritySection] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [pendingSheetDraft, setPendingSheetDraft] = useState<{
@@ -1364,6 +1434,7 @@ export default function App() {
   } | null>(null);
   const hasNotifiedAppReadyRef = useRef(false);
   const degradationEditorRef = useRef<HTMLDivElement | null>(null);
+  const integritySectionRef = useRef<HTMLDivElement | null>(null);
   const sheetEditorRef = useRef<HTMLElement | null>(null);
   const measurementCampaignEditorRef = useRef<HTMLDivElement | null>(null);
   const measurementRowEditorRef = useRef<HTMLDivElement | null>(null);
@@ -1393,6 +1464,18 @@ export default function App() {
     () => degradations.find((item) => item.id === selectedDegradationId) ?? null,
     [degradations, selectedDegradationId]
   );
+  const degradationDraftCauses = useMemo(() => parseMultilineValues(degradationCausesDraft), [degradationCausesDraft]);
+  const degradationEditorReferenceTreatment = useMemo(() => {
+    const draftValue = trimPreviewText(
+      deriveDegradationReferenceTreatment({
+        solution: selectedDegradation?.solution || "",
+        preventiveCriterion: degradationPreventiveCriterionDraft,
+        treatmentDetails: degradationTreatmentDetailsDraft
+      }),
+      220
+    );
+    return draftValue || "-";
+  }, [degradationPreventiveCriterionDraft, degradationTreatmentDetailsDraft, selectedDegradation]);
   const maintenanceSelectedRoad = useMemo(
     () => allRoads.find((road) => road.id === maintenanceRoadId) ?? null,
     [allRoads, maintenanceRoadId]
@@ -1534,24 +1617,6 @@ export default function App() {
       rationale
     };
   }, [askDrainage, decisionResult]);
-  const decisionAlignment = useMemo(() => {
-    if (!decisionResult) {
-      return null;
-    }
-
-    const referenceIntervention =
-      decisionResult.contextualIntervention && !isToDetermineIntervention(decisionResult.contextualIntervention)
-        ? decisionResult.contextualIntervention
-        : "";
-    const computedRecommendation =
-      decisionResult.maintenanceSolution || toDeflectionRecommendationLabel(decisionResult.deflection.recommendation) || "";
-
-    return {
-      referenceIntervention,
-      computedRecommendation,
-      status: compareRecommendations(referenceIntervention, computedRecommendation)
-    };
-  }, [decisionResult]);
   const decisionTreatment = useMemo(() => {
     if (!decisionResult) {
       return null;
@@ -1567,11 +1632,14 @@ export default function App() {
     const otherCauses = (decisionResult.degradation.causes || []).filter((cause) => {
       return normalizeComparisonText(cause) !== normalizeComparisonText(decisionResult.probableCause || "");
     });
+    const phaseLines = getTreatmentPhaseLines(treatmentDetails);
 
     return {
       preventiveCriterion,
       treatmentDetails,
-      otherCauses
+      otherCauses,
+      phaseLines,
+      phaseLabel: getTreatmentPhaseLabel(phaseLines.length)
     };
   }, [decisionResult, decisionSummary]);
   const filteredDegradations = useMemo(() => {
@@ -1580,7 +1648,12 @@ export default function App() {
       return degradations;
     }
     return degradations.filter((item) => {
-      return item.name.toLowerCase().includes(searchTerm) || item.causes.join(" ").toLowerCase().includes(searchTerm);
+      return (
+        item.name.toLowerCase().includes(searchTerm) ||
+        item.causes.join(" ").toLowerCase().includes(searchTerm) ||
+        item.preventiveCriterion.toLowerCase().includes(searchTerm) ||
+        item.treatmentDetails.toLowerCase().includes(searchTerm)
+      );
     });
   }, [degradationSearch, degradations]);
   const dynamicFeuil4Snapshot = useMemo(() => {
@@ -2177,11 +2250,6 @@ export default function App() {
     setSolutionTemplates(templates);
   }, []);
 
-  const loadDrainageRules = useCallback(async () => {
-    const items = await padApi.listDrainageRules();
-    setDrainageRules(items);
-  }, []);
-
   const loadFeuil4Snapshot = useCallback(async () => {
     try {
       const feuil4Rows = await padApi.listSheetRows("Feuil4", { limit: 300 });
@@ -2617,19 +2685,6 @@ export default function App() {
     setError("");
   }, []);
 
-  const clearDrainageRuleFieldError = useCallback((field: string) => {
-    setDrainageRuleFieldErrors((current) => {
-      if (!current[field]) {
-        return current;
-      }
-      const next = { ...current };
-      delete next[field];
-      return next;
-    });
-    setDrainageRuleFormError("");
-    setError("");
-  }, []);
-
   const clearMaintenanceFieldError = useCallback((field: string) => {
     setMaintenanceFieldErrors((current) => {
       if (!current[field]) {
@@ -2787,23 +2842,17 @@ export default function App() {
     return nextErrors;
   }, [solutionDraft]);
 
-  const validateDrainageRuleForm = useCallback(() => {
+  const validateDegradationForm = useCallback(() => {
     const nextErrors: Record<string, string> = {};
-    const parsedOrder = Number(drainageRuleOrder);
-    if (!String(drainageRuleOrder).trim()) {
-      nextErrors.ruleOrder = "Veuillez renseigner l'ordre de la règle.";
-    } else if (!Number.isFinite(parsedOrder) || parsedOrder <= 0) {
-      nextErrors.ruleOrder = "Veuillez saisir un nombre supérieur à 0.";
+    if (!degradationNameDraft.trim()) {
+      nextErrors.name = "Veuillez renseigner le nom de la dégradation.";
     }
-    if (drainageRuleOperator !== "ALWAYS" && !drainageRulePattern.trim()) {
-      nextErrors.pattern = "Veuillez renseigner le mot-clé ou l'expression à rechercher.";
+    if (degradationDraftCauses.length === 0) {
+      nextErrors.causes = "Ajoutez au moins une cause potentielle, une par ligne.";
     }
-    if (!drainageRuleRecommendation.trim()) {
-      nextErrors.recommendation = "Veuillez renseigner la recommandation d'assainissement.";
-    }
-    setDrainageRuleFieldErrors(nextErrors);
+    setDegradationFieldErrors(nextErrors);
     return nextErrors;
-  }, [drainageRuleOperator, drainageRuleOrder, drainageRulePattern, drainageRuleRecommendation]);
+  }, [degradationDraftCauses.length, degradationNameDraft]);
 
   const validateMaintenanceForm = useCallback(() => {
     const nextErrors: Record<string, string> = {};
@@ -2907,8 +2956,7 @@ export default function App() {
           loadHistory(),
           loadMaintenanceRows(),
           loadFeuil4Snapshot(),
-          loadSolutionTemplates(),
-          loadDrainageRules()
+          loadSolutionTemplates()
         ]);
 
         if (cancelled) {
@@ -2942,7 +2990,6 @@ export default function App() {
     loadDashboardSummary,
     loadAllRoads,
     loadAllRoadSections,
-    loadDrainageRules,
     loadFeuil4Snapshot,
     loadHistory,
     loadIntegrityReport,
@@ -3054,6 +3101,16 @@ export default function App() {
   }, [roads, selectedRoadId]);
 
   useEffect(() => {
+    if (selectedDegradationId === "") {
+      return;
+    }
+    const exists = degradations.some((item) => item.id === selectedDegradationId);
+    if (!exists) {
+      setSelectedDegradationId("");
+    }
+  }, [degradations, selectedDegradationId]);
+
+  useEffect(() => {
     if (!selectedDegradation) {
       setSelectedTemplateKey("");
       setSolutionDraft("");
@@ -3061,6 +3118,13 @@ export default function App() {
       setSolutionFormError("");
       return;
     }
+    setEditingDegradationId(selectedDegradation.id);
+    setDegradationNameDraft(selectedDegradation.name || "");
+    setDegradationCausesDraft(selectedDegradation.causes.join("\n"));
+    setDegradationPreventiveCriterionDraft(selectedDegradation.preventiveCriterion || "");
+    setDegradationTreatmentDetailsDraft(selectedDegradation.treatmentDetails || "");
+    setDegradationFieldErrors({});
+    setDegradationFormError("");
     setSelectedTemplateKey(selectedDegradation.templateKey ?? "");
     setSolutionDraft(selectedDegradation.solution || "");
     setSolutionFieldErrors({});
@@ -3068,7 +3132,7 @@ export default function App() {
   }, [selectedDegradation]);
 
   useEffect(() => {
-    if (!shouldScrollToDegradationEditor || !selectedDegradation || !degradationEditorRef.current) {
+    if (!shouldScrollToDegradationEditor || !degradationEditorRef.current) {
       return;
     }
 
@@ -3086,7 +3150,20 @@ export default function App() {
         window.clearTimeout(timeoutId);
       }
     };
-  }, [selectedDegradation, shouldScrollToDegradationEditor]);
+  }, [shouldScrollToDegradationEditor]);
+
+  useEffect(() => {
+    if (!shouldScrollToIntegritySection || activeView !== "dashboard" || !integritySectionRef.current) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      integritySectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      setShouldScrollToIntegritySection(false);
+    }, 60);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [activeView, shouldScrollToIntegritySection]);
 
   useEffect(() => {
     if (dashboardSummary?.integrity?.status !== "OK") {
@@ -3124,6 +3201,12 @@ export default function App() {
     loadRows();
   }, [hasElectronBridge, activeSheetName, activeView, loadRows]);
 
+  useEffect(() => {
+    if (activeView === "sheet:Feuil7") {
+      setActiveView("degradations");
+    }
+  }, [activeView]);
+
   async function handleImport() {
     setIsBusy(true);
     try {
@@ -3140,8 +3223,7 @@ export default function App() {
         loadHistory(),
         loadMaintenanceRows(),
         loadFeuil4Snapshot(),
-        loadSolutionTemplates(),
-        loadDrainageRules()
+        loadSolutionTemplates()
       ]);
       if (activeView.startsWith("sheet:") && activeSheetName !== "Feuil1") {
         await loadRows();
@@ -3218,8 +3300,7 @@ export default function App() {
           loadHistory(),
           loadMaintenanceRows(),
           loadFeuil4Snapshot(),
-          loadSolutionTemplates(),
-          loadDrainageRules()
+          loadSolutionTemplates()
         ]);
         if (activeView.startsWith("sheet:") && activeSheetName !== "Feuil1") {
           await loadRows();
@@ -3441,8 +3522,7 @@ export default function App() {
         loadHistory(),
         loadMaintenanceRows(),
         loadFeuil4Snapshot(),
-        loadSolutionTemplates(),
-        loadDrainageRules()
+        loadSolutionTemplates()
       ]);
       if (activeView.startsWith("sheet:") && activeSheetName !== "Feuil1") {
         await loadRows();
@@ -3488,6 +3568,11 @@ export default function App() {
     } finally {
       setIsDecisionBusy(false);
     }
+  }
+
+  function handleManageIntegrityFromAlert() {
+    setActiveView("dashboard");
+    setShouldScrollToIntegritySection(true);
   }
 
   function handleDecisionCampaignSelection(campaignKey: string) {
@@ -3950,17 +4035,75 @@ export default function App() {
     };
   }
 
+  function hydrateFeuil5DraftCells(cells: Partial<Record<SheetColumnKey, string>>) {
+    const next = { ...cells };
+    const draftRow = buildDraftRow(next);
+    const matchedRoad = resolveRoadFromFeuil2Row(draftRow, allRoads);
+
+    if (matchedRoad) {
+      next.C = next.C || matchedRoad.roadCode || "";
+      next.D = next.D || matchedRoad.designation || "";
+      next.E = next.E || matchedRoad.startLabel || "";
+      next.F = next.F || matchedRoad.endLabel || "";
+      next.G = next.G || toSheetCellValue(matchedRoad.lengthM);
+      next.H = next.H || toSheetCellValue(matchedRoad.widthM);
+      next.I = next.I || matchedRoad.surfaceType || "";
+      next.J = next.J || matchedRoad.pavementState || "";
+      next.K = next.K || matchedRoad.drainageType || "";
+      next.L = next.L || matchedRoad.drainageState || "";
+      next.M = next.M || toSheetCellValue(matchedRoad.sidewalkMinM);
+      next.N = next.N || matchedRoad.parkingLeft || "";
+      next.O = next.O || matchedRoad.parkingRight || "";
+      next.P = next.P || matchedRoad.parkingOther || "";
+    }
+
+    const matchedSection = allRoadSections.find((section) => {
+      if (normalizeLabel(section.sectionNo) !== normalizeLabel(next.B)) {
+        return false;
+      }
+      if (matchedRoad?.id && section.roadId) {
+        return matchedRoad.id === section.roadId;
+      }
+      return normalizeLabel(section.roadCode) === normalizeLabel(next.C);
+    });
+
+    if (matchedSection) {
+      next.A = deriveTronconNoFromSectionNo(next.B) || next.A || matchedSection.tronconNo || "";
+      next.B = next.B || matchedSection.sectionNo || "";
+      next.C = next.C || matchedSection.roadCode || "";
+      next.D = next.D || matchedSection.designation || "";
+      next.E = next.E || matchedSection.startLabel || "";
+      next.F = next.F || matchedSection.endLabel || "";
+      next.G = next.G || toSheetCellValue(matchedSection.lengthM);
+      next.H = next.H || toSheetCellValue(matchedSection.widthM);
+      next.I = next.I || matchedSection.surfaceType || "";
+      next.J = next.J || matchedSection.pavementState || "";
+      next.K = next.K || matchedSection.drainageType || "";
+      next.L = next.L || matchedSection.drainageState || "";
+      next.M = next.M || toSheetCellValue(matchedSection.sidewalkMinM);
+    }
+
+    if (next.B) {
+      next.A = deriveTronconNoFromSectionNo(next.B) || next.A;
+    }
+
+    return next;
+  }
+
   function handleEdit(row: SheetRow) {
     if (!activeSheet) {
       return;
     }
 
-    const nextCells = createEmptyCells(editableColumns);
+    let nextCells = createEmptyCells(editableColumns);
     for (const column of editableColumns) {
       nextCells[column] = String(row[column] ?? "");
     }
     if (activeSheet.name === "Feuil2" || activeSheet.name === "Feuil5") {
       nextCells.A = deriveTronconNoFromSectionNo(nextCells.B) || nextCells.A;
+    }
+    if (activeSheet.name === "Feuil5") {
+      nextCells = hydrateFeuil5DraftCells(nextCells);
     }
 
     setEditingRowId(row.id);
@@ -3968,6 +4111,26 @@ export default function App() {
     setDraftFieldErrors({});
     setDraftFormError("");
     setNotice(`Édition de la ligne ${getDisplayRowNumber(row)}.`);
+    setError("");
+    sheetEditorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function handleStartPrefilledFeuil5Draft(payload: SheetRowPayload, successMessage: string) {
+    if (!activeSheet || activeSheet.name !== "Feuil5") {
+      return;
+    }
+
+    let nextCells = createEmptyCells(editableColumns);
+    for (const column of editableColumns) {
+      nextCells[column] = String(payload[column] ?? "");
+    }
+    nextCells = hydrateFeuil5DraftCells(nextCells);
+
+    setEditingRowId(null);
+    setDraftCells(nextCells);
+    setDraftFieldErrors({});
+    setDraftFormError("");
+    setNotice(successMessage);
     setError("");
     sheetEditorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
@@ -4137,6 +4300,104 @@ export default function App() {
     }
   }
 
+  function resetDegradationEditor() {
+    setEditingDegradationId(null);
+    setSelectedDegradationId("");
+    setDegradationNameDraft("");
+    setDegradationCausesDraft("");
+    setDegradationPreventiveCriterionDraft("");
+    setDegradationTreatmentDetailsDraft("");
+    setDegradationFieldErrors({});
+    setDegradationFormError("");
+  }
+
+  function handleStartNewDegradation() {
+    resetDegradationEditor();
+    setShouldScrollToDegradationEditor(true);
+  }
+
+  function handleEditDegradation(item: DegradationItem) {
+    setSelectedDegradationId(item.id);
+    setShouldScrollToDegradationEditor(true);
+  }
+
+  async function handleSaveDegradation() {
+    const fieldErrors = validateDegradationForm();
+    if (Object.keys(fieldErrors).length > 0) {
+      const message = Object.values(fieldErrors)[0] || "Veuillez corriger les champs obligatoires.";
+      setDegradationFormError(message);
+      setError(message);
+      scrollPageTop();
+      return;
+    }
+
+    setIsDegradationBusy(true);
+    try {
+      const saved = await padApi.upsertDegradation({
+        id: editingDegradationId ?? undefined,
+        name: degradationNameDraft.trim(),
+        causes: degradationDraftCauses,
+        preventiveCriterion: degradationPreventiveCriterionDraft.trim(),
+        treatmentDetails: degradationTreatmentDetailsDraft.trim()
+      });
+      await refreshDecisionCatalogs();
+      if (saved) {
+        setSelectedDegradationId(saved.id);
+        setEditingDegradationId(saved.id);
+        setDegradationNameDraft(saved.name || "");
+        setDegradationCausesDraft(saved.causes.join("\n"));
+        setDegradationPreventiveCriterionDraft(saved.preventiveCriterion || "");
+        setDegradationTreatmentDetailsDraft(saved.treatmentDetails || "");
+      }
+      setDegradationFieldErrors({});
+      setDegradationFormError("");
+      setNotice(editingDegradationId ? "Dégradation mise à jour." : "Dégradation créée.");
+      setError("");
+      window.requestAnimationFrame(() => {
+        scrollPageTop();
+      });
+    } catch (err) {
+      const message = toErrorMessage(err);
+      setDegradationFormError(message);
+      setError(message);
+      scrollPageTop();
+    } finally {
+      setIsDegradationBusy(false);
+    }
+  }
+
+  async function handleDeleteDegradation(degradationId?: number) {
+    const targetId = Number(degradationId ?? editingDegradationId ?? 0);
+    if (!Number.isFinite(targetId) || targetId <= 0) {
+      setError("Sélectionne d'abord une dégradation à supprimer.");
+      return;
+    }
+
+    const target = degradations.find((item) => item.id === targetId) ?? null;
+    const label = target?.name || "cette dégradation";
+    if (!window.confirm(`Supprimer ${label} du catalogue ?`)) {
+      return;
+    }
+
+    setIsDegradationBusy(true);
+    try {
+      await padApi.deleteDegradation(targetId);
+      await refreshDecisionCatalogs();
+      if (selectedDegradationId === targetId || editingDegradationId === targetId) {
+        resetDegradationEditor();
+      }
+      setNotice(`Dégradation supprimée : ${label}.`);
+      setError("");
+    } catch (err) {
+      const message = toErrorMessage(err);
+      setDegradationFormError(message);
+      setError(message);
+      scrollPageTop();
+    } finally {
+      setIsDegradationBusy(false);
+    }
+  }
+
   async function handleAssignSolutionTemplate() {
     if (!selectedDegradation) {
       setError("Sélectionne une dégradation.");
@@ -4224,101 +4485,6 @@ export default function App() {
       scrollPageTop();
     } finally {
       setIsSolutionBusy(false);
-    }
-  }
-
-  function resetDrainageRuleEditor() {
-    setEditingDrainageRuleId(null);
-    setDrainageRuleFieldErrors({});
-    setDrainageRuleFormError("");
-    setDrainageRuleOrder("");
-    setDrainageRuleOperator("CONTAINS");
-    setDrainageRulePattern("");
-    setDrainageRuleAskRequired(false);
-    setDrainageRuleNeedsAttention(false);
-    setDrainageRuleRecommendation("");
-    setDrainageRuleActive(true);
-  }
-
-  function handleEditDrainageRule(rule: DrainageRule) {
-    setEditingDrainageRuleId(rule.id);
-    setDrainageRuleFieldErrors({});
-    setDrainageRuleFormError("");
-    setDrainageRuleOrder(String(rule.ruleOrder));
-    setDrainageRuleOperator(rule.matchOperator);
-    setDrainageRulePattern(rule.pattern || "");
-    setDrainageRuleAskRequired(rule.askRequired);
-    setDrainageRuleNeedsAttention(rule.needsAttention);
-    setDrainageRuleRecommendation(rule.recommendation || "");
-    setDrainageRuleActive(rule.isActive);
-    setError("");
-    setNotice(`Édition règle assainissement #${rule.id}`);
-    scrollPageTop();
-  }
-
-  async function handleSaveDrainageRule() {
-    const fieldErrors = validateDrainageRuleForm();
-    if (Object.keys(fieldErrors).length > 0) {
-      const message = Object.values(fieldErrors)[0] || "Veuillez corriger les champs obligatoires.";
-      setDrainageRuleFormError(message);
-      setError(message);
-      scrollPageTop();
-      return;
-    }
-    const parsedOrder = Number(drainageRuleOrder);
-
-    setIsDrainageRuleBusy(true);
-    try {
-      await padApi.upsertDrainageRule({
-        id: editingDrainageRuleId ?? undefined,
-        ruleOrder: Math.trunc(parsedOrder),
-        matchOperator: drainageRuleOperator,
-        pattern: drainageRuleOperator === "ALWAYS" ? "" : drainageRulePattern.trim(),
-        askRequired: drainageRuleAskRequired,
-        needsAttention: drainageRuleNeedsAttention,
-        recommendation: drainageRuleRecommendation.trim(),
-        isActive: drainageRuleActive
-      });
-      await loadDrainageRules();
-      resetDrainageRuleEditor();
-      setDrainageRuleFieldErrors({});
-      setDrainageRuleFormError("");
-      setError("");
-      setNotice("Règle assainissement enregistrée.");
-    } catch (err) {
-      const message = toErrorMessage(err);
-      setDrainageRuleFormError(message);
-      setError(message);
-      scrollPageTop();
-    } finally {
-      setIsDrainageRuleBusy(false);
-    }
-  }
-
-  async function handleDeleteDrainageRule(ruleId?: number) {
-    const id = Number(ruleId ?? editingDrainageRuleId);
-    if (!Number.isFinite(id) || id <= 0) {
-      setError("Sélectionne une règle assainissement à supprimer.");
-      return;
-    }
-
-    if (!window.confirm("Supprimer cette règle assainissement ?")) {
-      return;
-    }
-
-    setIsDrainageRuleBusy(true);
-    try {
-      await padApi.deleteDrainageRule(id);
-      await loadDrainageRules();
-      if (editingDrainageRuleId === id) {
-        resetDrainageRuleEditor();
-      }
-      setError("");
-      setNotice(`Règle assainissement #${id} supprimée.`);
-    } catch (err) {
-      setError(toErrorMessage(err));
-    } finally {
-      setIsDrainageRuleBusy(false);
     }
   }
 
@@ -4727,7 +4893,7 @@ export default function App() {
               )}
             </div>
 
-            <div className="card card--spaced">
+            <div ref={integritySectionRef} className="card card--spaced">
               <div className="dashboard-card__header">
                 <h3>Recette & cohérence</h3>
                 <ShieldCheck size={18} aria-hidden="true" />
@@ -5210,9 +5376,14 @@ export default function App() {
                     {decisionTreatment?.preventiveCriterion || decisionSummary?.finalRecommendation || "À préciser"}
                   </p>
                   {decisionTreatment?.otherCauses.length ? (
-                    <p className="decision-hero__cause">
-                      <strong>Autres causes recensées :</strong> {decisionTreatment.otherCauses.join(" ; ")}
-                    </p>
+                    <div className="decision-hero__cause">
+                      <strong>Autres causes recensées :</strong>
+                      <ul className="decision-list decision-list--compact">
+                        {decisionTreatment.otherCauses.map((cause, index) => (
+                          <li key={`decision-other-cause-${index}`}>{cause}</li>
+                        ))}
+                      </ul>
+                    </div>
                   ) : null}
                 </div>
 
@@ -5254,11 +5425,14 @@ export default function App() {
 
                 <div className="card card--full">
                   <h3>Comment traiter cette dégradation</h3>
-                  {decisionTreatment?.treatmentDetails ? (
+                  {decisionTreatment?.phaseLines.length ? (
                     <div className="decision-treatment-details">
-                      {decisionTreatment.treatmentDetails.split(/\n+/).map((item, index) => (
-                        <p key={`decision-treatment-${index}`}>{item}</p>
-                      ))}
+                      <p className="decision-treatment-details__label">{decisionTreatment.phaseLabel}</p>
+                      <ul className="decision-list">
+                        {decisionTreatment.phaseLines.map((item, index) => (
+                          <li key={`decision-treatment-${index}`}>{item}</li>
+                        ))}
+                      </ul>
                     </div>
                   ) : (
                     <p className="muted">Le mode opératoire détaillé n'est pas encore renseigné pour cette dégradation.</p>
@@ -5323,49 +5497,6 @@ export default function App() {
                   </div>
                 </div>
 
-                <div
-                  className={`card ${
-                    decisionSummary?.warnings.length ? "card--warning" : ""
-                  }`}
-                >
-                  <h3>Alerte métier</h3>
-                  {decisionSummary?.warnings.length ? (
-                    <ul className="decision-list">
-                      {decisionSummary.warnings.map((warning, index) => (
-                        <li key={`decision-warning-${index}`}>{warning}</li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="muted">Aucune alerte bloquante détectée pour cette décision.</p>
-                  )}
-                </div>
-
-                <div
-                  className={`card ${
-                    decisionAlignment?.status.tone === "danger" || isToDetermineIntervention(decisionResult.contextualIntervention)
-                      ? "card--warning"
-                      : ""
-                  }`}
-                >
-                  <h3>Alignement référentiel / calcul</h3>
-                  <div className="decision-alignment">
-                    <div className="decision-alignment__item">
-                      <span>Intervention du référentiel</span>
-                      <strong>{decisionAlignment?.referenceIntervention || "À préciser dans le référentiel"}</strong>
-                    </div>
-                    <div className="decision-alignment__item">
-                      <span>Recommandation calculée</span>
-                      <strong>{decisionAlignment?.computedRecommendation || "Aucune recommandation exploitable"}</strong>
-                    </div>
-                    <div className="decision-alignment__status">
-                      <span className={`status-pill status-pill--${decisionAlignment?.status.tone || "neutral"}`}>
-                        {decisionAlignment?.status.label || "Alignement incomplet"}
-                      </span>
-                      <p className="muted">{decisionAlignment?.status.message || "Comparaison indisponible."}</p>
-                    </div>
-                  </div>
-                </div>
-
                 <div className="card card--full">
                   <h3>Justification de la voie</h3>
                   {String(decisionResult.road.justification || "").trim() ? (
@@ -5391,7 +5522,7 @@ export default function App() {
   function renderCatalogueView() {
     return (
       <main className="workspace workspace--full">
-        <section className="panel table-panel table-panel--full sheet-print-view">
+        <section className="panel table-panel table-panel--full sheet-print-view degradation-print-view">
           {renderStandardSheetPrintHeader(
             "Catalogue des voies",
             "Référence complète des voies par secteur SAP."
@@ -5494,26 +5625,45 @@ export default function App() {
   }
 
   function renderDegradationsView() {
-    const selectedPrimaryCause = getDegradationPrimaryCause(selectedDegradation);
-    const selectedOtherCauses = getDegradationOtherCauses(selectedDegradation);
+    const editorPrimaryCause = degradationDraftCauses[0] || "";
+    const editorOtherCauses = degradationDraftCauses.slice(1);
+    const editorTreatmentLines = getTreatmentPhaseLines(degradationTreatmentDetailsDraft);
+    const editorTreatmentLabel = getTreatmentPhaseLabel(editorTreatmentLines.length);
+    const editorTitle = editingDegradationId ? degradationNameDraft || "Dégradation sélectionnée" : "Nouvelle dégradation";
 
     return (
       <main className="workspace workspace--full">
-        <section className="panel table-panel table-panel--full sheet-print-view">
+        <section className="panel table-panel table-panel--full sheet-print-view degradation-print-view">
           {renderStandardSheetPrintHeader(
-            "Catalogue des dégradations",
-            "Fiches métier des dégradations : causes, critère préventif, traitement et paramétrage."
+            "Dégradations et traitements",
+            "Catalogue unifié des dégradations, causes potentielles et solutions de maintenance."
           )}
           <div className="dashboard-card__header">
             <div>
-              <h2>Catalogue des dégradations</h2>
-              <p className="muted">Chaque dégradation regroupe ses causes, son traitement de référence et son mode opératoire détaillé.</p>
+              <h2>Dégradations et traitements</h2>
+              <p className="muted">
+                Une seule vue métier regroupe la dégradation, ses causes potentielles et la façon de la traiter.
+              </p>
             </div>
             <div className="sheet-header-actions">
+              <div className="measurement-toolbar__meta">
+                <span className="pill">Dégradations: {filteredDegradations.length}</span>
+                <span className="pill">
+                  Causes détaillées: {filteredDegradations.reduce((total, item) => total + item.causes.length, 0)}
+                </span>
+              </div>
+              <button
+                className="row-action row-action--save row-action--with-icon"
+                type="button"
+                onClick={handleStartNewDegradation}
+              >
+                <Plus size={15} aria-hidden="true" />
+                Nouvelle dégradation
+              </button>
               <button
                 className="row-action row-action--print row-action--icon row-action--icon-sm"
                 type="button"
-                onClick={() => void exportCurrentPdf("catalogue-des-degradations-pad")}
+                onClick={() => void exportCurrentPdf("degradations-et-traitements-pad")}
                 title="Imprimer le catalogue des dégradations"
                 aria-label="Imprimer le catalogue des dégradations"
               >
@@ -5522,401 +5672,292 @@ export default function App() {
             </div>
           </div>
 
-          <div className="table-toolbar table-toolbar--triple">
+          <div className="table-toolbar">
             <input
               value={degradationSearch}
               onChange={(event) => setDegradationSearch(event.target.value)}
-              placeholder="Recherche dégradation ou cause"
+              placeholder="Rechercher une dégradation, une cause ou un traitement"
             />
-            <span className="muted">{filteredDegradations.length} dégradation(s)</span>
-            <span className="muted">{degradations.length} total</span>
+            <span className="muted">{degradations.length} ligne(s) métier</span>
           </div>
 
           <div className="table-wrap">
-            <table>
+            <table className="table--degradation-catalog">
               <thead>
                 <tr>
-                  <th className="col-actions">Action</th>
-                  <th>Dégradation</th>
-                  <th>Causes associées</th>
-                  <th>Critère préventif</th>
-                  <th>Traitement de référence</th>
+                  <th className="col-actions">Actions</th>
+                  <th>Dégradations</th>
+                  <th>Causes potentielles</th>
+                  <th>Solutions de maintenance</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredDegradations.map((item) => (
-                  <tr key={item.id} className={selectedDegradationId === item.id ? "is-selected" : ""}>
-                    <td className="col-actions">
-                      <div className="row-buttons">
-                        <button
-                          className="row-action row-action--configure row-action--with-icon"
-                          type="button"
-                          onClick={() => {
-                            setSelectedDegradationId(item.id);
-                            setShouldScrollToDegradationEditor(true);
-                          }}
-                        >
-                          <Settings2 size={15} aria-hidden="true" />
-                          Configurer
-                        </button>
-                        <button
-                          className="row-action row-action--use"
-                          type="button"
-                          onClick={() => {
-                            setSelectedDegradationId(item.id);
-                            setActiveView("decision");
-                          }}
-                        >
-                          Utiliser
-                        </button>
-                      </div>
-                    </td>
-                    <td>
-                      <div className="degradation-table-cell">
-                        <strong>{item.name}</strong>
-                        <span className="degradation-table-meta">{toSolutionSourceLabel(item.solutionSource)}</span>
-                      </div>
-                    </td>
-                    <td>{formatDegradationCausePreview(item)}</td>
-                    <td>{trimPreviewText(item.preventiveCriterion || "-", 180) || "-"}</td>
-                    <td>{getDegradationReferenceTreatment(item)}</td>
-                  </tr>
-                ))}
-                {filteredDegradations.length === 0 ? (
-                  <tr>
-                    <td colSpan={5}>Aucune dégradation trouvée.</td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
+                {filteredDegradations.map((item) => {
+                  const primaryCause = getDegradationPrimaryCause(item);
+                  const otherCauses = getDegradationOtherCauses(item);
+                  const referenceTreatment = getDegradationReferenceTreatment(item);
+                  const treatmentLines = getTreatmentPhaseLines(item.treatmentDetails || item.preventiveCriterion || "");
+                  const treatmentLabel = getTreatmentPhaseLabel(treatmentLines.length);
 
-          {selectedDegradation ? (
-            <div
-              ref={degradationEditorRef}
-              className={`card card--spaced${isDegradationEditorHighlighted ? " card--highlighted" : ""}`}
-            >
-              <div className="dashboard-card__header">
-                <div>
-                  <h3>Fiche dégradation : {selectedDegradation.name}</h3>
-                  <p className="muted">Une seule fiche rassemble la dégradation, ses causes et sa réponse métier.</p>
-                </div>
-              </div>
-
-              <div className="measurement-summary__grid degradation-summary-grid">
-                <div className="measurement-summary__item">
-                  <span>Code</span>
-                  <strong>{selectedDegradation.code}</strong>
-                </div>
-                <div className="measurement-summary__item">
-                  <span>Causes associées</span>
-                  <strong>{selectedDegradation.causes.length}</strong>
-                </div>
-                <div className="measurement-summary__item">
-                  <span>Source de solution</span>
-                  <strong>{toSolutionSourceLabel(selectedDegradation.solutionSource)}</strong>
-                </div>
-                <div className="measurement-summary__item">
-                  <span>Solution courante</span>
-                  <strong>{selectedDegradation.solution || "-"}</strong>
-                </div>
-              </div>
-
-              <div className="degradation-fiche-grid">
-                <div className="degradation-fiche-panel">
-                  <h4>Causes associées</h4>
-                  {selectedPrimaryCause ? (
-                    <div className="degradation-cause-primary">
-                      <span className="degradation-cause-primary__label">Cause principale</span>
-                      <strong>{selectedPrimaryCause}</strong>
-                    </div>
-                  ) : (
-                    <p className="muted">Aucune cause détaillée n'est encore renseignée pour cette dégradation.</p>
-                  )}
-
-                  {selectedOtherCauses.length > 0 ? (
-                    <ul className="degradation-cause-list">
-                      {selectedOtherCauses.map((cause, index) => (
-                        <li key={`${selectedDegradation.id}-cause-${index}`}>{cause}</li>
-                      ))}
-                    </ul>
-                  ) : selectedPrimaryCause ? (
-                    <p className="muted">Aucune autre cause complémentaire n'est encore recensée.</p>
-                  ) : null}
-                </div>
-
-                <div className="degradation-fiche-panel">
-                  <h4>Réponse métier</h4>
-                  <p>
-                    <strong>Critère préventif :</strong> {selectedDegradation.preventiveCriterion || selectedDegradation.solution || "-"}
-                  </p>
-                  <p>
-                    <strong>Traitement de référence :</strong> {selectedDegradation.solution || "-"}
-                  </p>
-                </div>
-
-                <div className="degradation-fiche-panel degradation-fiche-panel--full">
-                  <h4>Mode opératoire détaillé</h4>
-                  <div className="decision-treatment-details">
-                    {(selectedDegradation.treatmentDetails || "").trim() ? (
-                      selectedDegradation.treatmentDetails
-                        .split(/\n+/)
-                        .map((item, index) => <p key={`${selectedDegradation.id}-treatment-${index}`}>{item}</p>)
-                    ) : (
-                      <p>Aucun mode opératoire détaillé n'est encore renseigné pour cette dégradation.</p>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              <h3>Paramétrage de la solution de maintenance</h3>
-              {solutionFormError ? <p className="modal-feedback modal-feedback--error">{solutionFormError}</p> : null}
-              <label htmlFor="template-key">
-                Modèle de solution <span className="field-label__required">*</span>
-              </label>
-              <select
-                id="template-key"
-                className={solutionFieldErrors.templateKey ? "cell-field--error" : undefined}
-                value={selectedTemplateKey}
-                onChange={(event) => {
-                  setSelectedTemplateKey(event.target.value);
-                  clearSolutionFieldError("templateKey");
-                }}
-                disabled={isSolutionBusy}
-              >
-                <option value="">Sélectionner un modèle</option>
-                {solutionTemplates.map((template) => (
-                  <option key={template.templateKey} value={template.templateKey}>
-                    {template.title}
-                  </option>
-                ))}
-              </select>
-              {solutionFieldErrors.templateKey ? <p className="field-error">{solutionFieldErrors.templateKey}</p> : null}
-
-              <div className="editor-actions">
-                <button className="row-action" type="button" onClick={handleAssignSolutionTemplate} disabled={isSolutionBusy}>
-                  Appliquer le modèle
-                </button>
-              </div>
-
-              <label htmlFor="solution-override">
-                Solution personnalisée <span className="field-label__required">*</span>
-              </label>
-              <textarea
-                id="solution-override"
-                className={`input-textarea${solutionFieldErrors.solutionDraft ? " cell-field--error" : ""}`}
-                value={solutionDraft}
-                onChange={(event) => {
-                  setSolutionDraft(event.target.value);
-                  clearSolutionFieldError("solutionDraft");
-                }}
-                placeholder="Saisir la solution de maintenance spécifique à cette dégradation"
-                rows={5}
-                disabled={isSolutionBusy}
-              />
-              {solutionFieldErrors.solutionDraft ? <p className="field-error">{solutionFieldErrors.solutionDraft}</p> : null}
-
-              <div className="editor-actions">
-                <button className="primary" type="button" onClick={handleSaveSolutionOverride} disabled={isSolutionBusy}>
-                  Enregistrer personnalisation
-                </button>
-                <button className="row-action row-action--danger" type="button" onClick={handleClearSolutionOverride} disabled={isSolutionBusy}>
-                  Retirer personnalisation
-                </button>
-              </div>
-            </div>
-          ) : null}
-
-          <div className="card card--spaced">
-            <h3>Moteur assainissement (règles)</h3>
-            <p className="muted">Règles utilisées automatiquement pendant l'évaluation de décision.</p>
-
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th className="col-actions">Actions</th>
-                    <th>Ordre</th>
-                    <th>Opérateur</th>
-                    <th>Pattern</th>
-                    <th>Question décideur</th>
-                    <th>Alerte</th>
-                    <th>Active</th>
-                    <th>Recommandation</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {drainageRules.map((rule) => (
-                    <tr key={rule.id} className={editingDrainageRuleId === rule.id ? "is-selected" : ""}>
+                  return (
+                    <tr
+                      key={item.id}
+                      className={`${selectedDegradationId === item.id ? "is-selected " : ""}is-clickable`}
+                      onClick={() => setSelectedDegradationId(item.id)}
+                    >
                       <td className="col-actions">
                         <div className="row-buttons">
                           <button
+                            className="row-action row-action--evaluate row-action--icon"
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setSelectedDegradationId(item.id);
+                              setActiveView("decision");
+                            }}
+                            title="Utiliser dans l'aide à la décision"
+                            aria-label={`Utiliser ${item.name} dans l'aide à la décision`}
+                          >
+                            <Gauge size={16} aria-hidden="true" />
+                          </button>
+                          <button
                             className="row-action row-action--icon"
                             type="button"
-                            onClick={() => handleEditDrainageRule(rule)}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleEditDegradation(item);
+                            }}
                             title="Éditer"
-                            aria-label="Éditer"
+                            aria-label={`Éditer ${item.name}`}
                           >
                             <Pencil size={16} aria-hidden="true" />
                           </button>
                           <button
                             className="row-action row-action--danger row-action--icon"
                             type="button"
-                            onClick={() => handleDeleteDrainageRule(rule.id)}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void handleDeleteDegradation(item.id);
+                            }}
                             title="Supprimer"
-                            aria-label="Supprimer"
+                            aria-label={`Supprimer ${item.name}`}
                           >
                             <Trash2 size={16} aria-hidden="true" />
                           </button>
                         </div>
                       </td>
-                      <td>{rule.ruleOrder}</td>
-                      <td>{rule.matchOperator}</td>
-                      <td>{rule.pattern || "-"}</td>
-                      <td>{rule.askRequired ? "Oui" : "Non"}</td>
-                      <td>{rule.needsAttention ? "Oui" : "Non"}</td>
-                      <td>{rule.isActive ? "Oui" : "Non"}</td>
-                      <td>{rule.recommendation}</td>
+                      <td>
+                        <div className="degradation-table-cell">
+                          <strong>{item.name}</strong>
+                          <span className="degradation-table-meta">{toSolutionSourceLabel(item.solutionSource)}</span>
+                        </div>
+                      </td>
+                      <td>
+                        <div className="table-cell-stack">
+                          <strong>{primaryCause || "Aucune cause renseignée"}</strong>
+                          {otherCauses.length > 0 ? (
+                            <ul className="table-cell-list">
+                              {otherCauses.map((cause) => (
+                                <li key={`${item.id}-${cause}`}>{cause}</li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <span>Aucune autre cause recensée.</span>
+                          )}
+                        </div>
+                      </td>
+                      <td>
+                        <div className="table-cell-stack table-cell-stack--solution">
+                          {treatmentLines.length > 0 ? (
+                            <>
+                              {treatmentLabel ? <span className="table-cell-stack__primary">{treatmentLabel}</span> : null}
+                              <ul className="table-cell-list table-cell-list--muted">
+                                {treatmentLines.map((line, index) => (
+                                  <li key={`${item.id}-phase-${index}`}>{line}</li>
+                                ))}
+                              </ul>
+                            </>
+                          ) : (
+                            <>
+                              <span className="table-cell-stack__primary">
+                                {referenceTreatment || "Aucune procédure détaillée disponible."}
+                              </span>
+                              <span>{trimPreviewText(item.preventiveCriterion || item.treatmentDetails || "", 260) || "Aucune procédure détaillée disponible."}</span>
+                            </>
+                          )}
+                        </div>
+                      </td>
                     </tr>
-                  ))}
-                  {drainageRules.length === 0 ? (
-                    <tr>
-                      <td colSpan={8}>Aucune règle assainissement.</td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+                  );
+                })}
+                {filteredDegradations.length === 0 ? (
+                  <tr>
+                    <td colSpan={4}>Aucune dégradation trouvée.</td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
 
-            <h3 className="drainage-editor-title">
-              {editingDrainageRuleId ? `Édition règle #${editingDrainageRuleId}` : "Nouvelle règle assainissement"}
-            </h3>
-            {drainageRuleFormError ? <p className="modal-feedback modal-feedback--error">{drainageRuleFormError}</p> : null}
-            <div className="cells-grid">
-              <div className={`cell-field${drainageRuleFieldErrors.ruleOrder ? " cell-field--error" : ""}`}>
-                <label htmlFor="dr-rule-order">
-                  Ordre de règle <span className="field-label__required">*</span>
-                </label>
-                <input
-                  id="dr-rule-order"
-                  type="number"
-                  min={1}
-                  className={drainageRuleFieldErrors.ruleOrder ? "cell-field--error" : undefined}
-                  value={drainageRuleOrder}
-                  onChange={(event) => {
-                    setDrainageRuleOrder(event.target.value);
-                    clearDrainageRuleFieldError("ruleOrder");
-                  }}
-                  disabled={isDrainageRuleBusy}
-                />
-                {drainageRuleFieldErrors.ruleOrder ? <p className="field-error">{drainageRuleFieldErrors.ruleOrder}</p> : null}
+          <div
+            ref={degradationEditorRef}
+            className={`card card--spaced degradation-editor-card${isDegradationEditorHighlighted ? " card--highlighted" : ""}`}
+          >
+            <div className="dashboard-card__header">
+              <div>
+                <h3>{editingDegradationId ? `Fiche métier : ${editorTitle}` : "Nouvelle dégradation"}</h3>
+                <p className="muted">
+                  Modifie directement la dégradation, ses causes, son critère préventif et la procédure de traitement.
+                </p>
               </div>
-
-              <div className="cell-field">
-                <label htmlFor="dr-rule-operator">Opérateur</label>
-                <select
-                  id="dr-rule-operator"
-                  value={drainageRuleOperator}
-                  onChange={(event) => {
-                    setDrainageRuleOperator(event.target.value as DrainageRule["matchOperator"]);
-                    clearDrainageRuleFieldError("pattern");
-                  }}
-                  disabled={isDrainageRuleBusy}
+              <div className="row-buttons row-buttons--wrap">
+                <button
+                  className="row-action row-action--use row-action--with-icon"
+                  type="button"
+                  onClick={() => setActiveView("decision")}
+                  disabled={!selectedDegradation}
                 >
-                  {DRAINAGE_OPERATORS.map((operator) => (
-                    <option key={operator} value={operator}>
-                      {operator}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className={`cell-field${drainageRuleFieldErrors.pattern ? " cell-field--error" : ""}`}>
-                <label htmlFor="dr-rule-pattern">
-                  Pattern{drainageRuleOperator !== "ALWAYS" ? <span className="field-label__required"> *</span> : null}
-                </label>
-                <input
-                  id="dr-rule-pattern"
-                  className={drainageRuleFieldErrors.pattern ? "cell-field--error" : undefined}
-                  value={drainageRulePattern}
-                  onChange={(event) => {
-                    setDrainageRulePattern(event.target.value);
-                    clearDrainageRuleFieldError("pattern");
-                  }}
-                  placeholder={drainageRuleOperator === "ALWAYS" ? "Non utilisé avec ALWAYS" : "Ex: OBSTR"}
-                  disabled={isDrainageRuleBusy || drainageRuleOperator === "ALWAYS"}
-                />
-                {drainageRuleFieldErrors.pattern ? <p className="field-error">{drainageRuleFieldErrors.pattern}</p> : null}
+                  <Gauge size={15} aria-hidden="true" />
+                  Utiliser dans l'aide à la décision
+                </button>
+                <button className="row-action" type="button" onClick={handleStartNewDegradation}>
+                  Nouvelle ligne
+                </button>
+                <button className="row-action row-action--save" type="button" onClick={() => void handleSaveDegradation()} disabled={isDegradationBusy}>
+                  {isDegradationBusy ? "Enregistrement..." : "Enregistrer"}
+                </button>
+                {editingDegradationId ? (
+                  <button
+                    className="row-action row-action--danger"
+                    type="button"
+                    onClick={() => void handleDeleteDegradation()}
+                    disabled={isDegradationBusy}
+                  >
+                    Supprimer
+                  </button>
+                ) : null}
               </div>
             </div>
 
-            <label className="checkbox-row" htmlFor="dr-rule-ask-required">
-              <input
-                id="dr-rule-ask-required"
-                type="checkbox"
-                checked={drainageRuleAskRequired}
-                onChange={(event) => setDrainageRuleAskRequired(event.target.checked)}
-                disabled={isDrainageRuleBusy}
-              />
-              Règle appliquée seulement si "Interroger explicitement l'assainissement" est coché
-            </label>
+            {degradationFormError ? <p className="alert alert--danger">{degradationFormError}</p> : null}
 
-            <label className="checkbox-row" htmlFor="dr-rule-needs-attention">
-              <input
-                id="dr-rule-needs-attention"
-                type="checkbox"
-                checked={drainageRuleNeedsAttention}
-                onChange={(event) => setDrainageRuleNeedsAttention(event.target.checked)}
-                disabled={isDrainageRuleBusy}
-              />
-              Déclenche une alerte assainissement
-            </label>
+            <div className="measurement-summary__grid degradation-summary-grid">
+              <div className="measurement-summary__item">
+                <span>Dégradation</span>
+                <strong>{degradationNameDraft.trim() || "-"}</strong>
+              </div>
+              <div className="measurement-summary__item">
+                <span>Causes potentielles</span>
+                <strong>{degradationDraftCauses.length}</strong>
+              </div>
+              <div className="measurement-summary__item">
+                <span>Traitement de référence</span>
+                <strong>{degradationEditorReferenceTreatment}</strong>
+              </div>
+              <div className="measurement-summary__item">
+                <span>Source</span>
+                <strong>{selectedDegradation ? toSolutionSourceLabel(selectedDegradation.solutionSource) : "Saisie manuelle"}</strong>
+              </div>
+            </div>
 
-            <label className="checkbox-row" htmlFor="dr-rule-active">
-              <input
-                id="dr-rule-active"
-                type="checkbox"
-                checked={drainageRuleActive}
-                onChange={(event) => setDrainageRuleActive(event.target.checked)}
-                disabled={isDrainageRuleBusy}
-              />
-              Règle active
-            </label>
+            <div className="degradation-editor-grid">
+              <label className="cell-field">
+                <span>Dégradation *</span>
+                <input
+                  value={degradationNameDraft}
+                  onChange={(event) => setDegradationNameDraft(event.target.value)}
+                  placeholder="Ex: Nids de poule"
+                />
+                {degradationFieldErrors.name ? <p className="field-error">{degradationFieldErrors.name}</p> : null}
+                <p className="field-help">Nom métier de la dégradation tel qu’il doit apparaître dans le catalogue.</p>
+              </label>
 
-            <label htmlFor="dr-rule-reco">
-              Recommandation <span className="field-label__required">*</span>
-            </label>
-            <textarea
-              id="dr-rule-reco"
-              className={`input-textarea${drainageRuleFieldErrors.recommendation ? " cell-field--error" : ""}`}
-              value={drainageRuleRecommendation}
-              onChange={(event) => {
-                setDrainageRuleRecommendation(event.target.value);
-                clearDrainageRuleFieldError("recommendation");
-              }}
-              placeholder="Texte de recommandation assainissement"
-              rows={3}
-              disabled={isDrainageRuleBusy}
-            />
-            {drainageRuleFieldErrors.recommendation ? (
-              <p className="field-error">{drainageRuleFieldErrors.recommendation}</p>
-            ) : null}
+              <label className="cell-field cell-field--wide">
+                <span>Causes potentielles *</span>
+                <textarea
+                  rows={6}
+                  value={degradationCausesDraft}
+                  onChange={(event) => setDegradationCausesDraft(event.target.value)}
+                  placeholder={"Une cause par ligne\nEx: Défaut localisé de la couche de roulement"}
+                />
+                {degradationFieldErrors.causes ? <p className="field-error">{degradationFieldErrors.causes}</p> : null}
+                <p className="field-help">Ajoute une cause par ligne. La première ligne sera utilisée comme cause probable par défaut.</p>
+              </label>
 
-            <div className="editor-actions">
-              <button className="primary" type="button" onClick={handleSaveDrainageRule} disabled={isDrainageRuleBusy}>
-                {isDrainageRuleBusy ? "Enregistrement..." : "Enregistrer règle"}
-              </button>
-              <button className="row-action" type="button" onClick={resetDrainageRuleEditor} disabled={isDrainageRuleBusy}>
-                Réinitialiser
-              </button>
-              <button
-                className="row-action row-action--danger"
-                type="button"
-                onClick={() => handleDeleteDrainageRule()}
-                disabled={isDrainageRuleBusy || !editingDrainageRuleId}
-              >
-                Supprimer
-              </button>
+              <label className="cell-field">
+                <span>Critère préventif</span>
+                <textarea
+                  rows={4}
+                  value={degradationPreventiveCriterionDraft}
+                  onChange={(event) => setDegradationPreventiveCriterionDraft(event.target.value)}
+                  placeholder="Ex: Le traitement comprend quatre phases :"
+                />
+                <p className="field-help">Phrase courte qui annonce l’orientation de traitement.</p>
+              </label>
+
+              <label className="cell-field">
+                <span>Comment traiter cette dégradation</span>
+                <textarea
+                  rows={7}
+                  value={degradationTreatmentDetailsDraft}
+                  onChange={(event) => setDegradationTreatmentDetailsDraft(event.target.value)}
+                  placeholder={"Une étape par ligne\nEx: On délimite d'abord la zone à réparer"}
+                />
+                <p className="field-help">Procédure détaillée. Écris une étape par ligne pour faciliter la lecture dans l’aide à la décision.</p>
+              </label>
+            </div>
+
+            <div className="degradation-fiche-grid">
+              <div className="degradation-fiche-panel">
+                <h4>Causes potentielles</h4>
+                {editorPrimaryCause ? (
+                  <div className="degradation-cause-primary">
+                    <span className="degradation-cause-primary__label">Cause probable</span>
+                    <strong>{editorPrimaryCause}</strong>
+                  </div>
+                ) : (
+                  <p className="muted">Aucune cause détaillée n'est encore renseignée pour cette dégradation.</p>
+                )}
+
+                {editorOtherCauses.length > 0 ? (
+                  <ul className="degradation-cause-list">
+                    {editorOtherCauses.map((cause, index) => (
+                      <li key={`editor-cause-${index}`}>{cause}</li>
+                    ))}
+                  </ul>
+                ) : editorPrimaryCause ? (
+                  <p className="muted">Aucune autre cause complémentaire n'est encore recensée.</p>
+                ) : null}
+              </div>
+
+              <div className="degradation-fiche-panel">
+                <h4>Solutions de maintenance</h4>
+                <p>
+                  <strong>Traitement de référence :</strong> {degradationEditorReferenceTreatment}
+                </p>
+                <p>
+                  <strong>Critère préventif :</strong>{" "}
+                  {degradationPreventiveCriterionDraft.trim() || "Aucun critère préventif détaillé n'est encore renseigné."}
+                </p>
+              </div>
+
+              <div className="degradation-fiche-panel degradation-fiche-panel--full">
+                <h4>Comment traiter cette dégradation</h4>
+                <div className="decision-treatment-details">
+                  {editorTreatmentLines.length > 0 ? (
+                    <>
+                      <p className="decision-treatment-details__label">{editorTreatmentLabel}</p>
+                      <ul className="decision-list">
+                        {editorTreatmentLines.map((item, index) => (
+                          <li key={`editor-treatment-${index}`}>{item}</li>
+                        ))}
+                      </ul>
+                    </>
+                  ) : (
+                    <p>Aucun mode opératoire détaillé n'est encore renseigné pour cette dégradation.</p>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
 
@@ -7840,6 +7881,13 @@ export default function App() {
     }
 
     if (activeSheet.name === "Feuil7") {
+      const causeRowsCount = rows.filter((row) => String(row.G ?? "").trim()).length;
+      const uniqueDegradationCount = new Set(rows.map((row) => normalizeLabel(row.C)).filter(Boolean)).size;
+      const uniqueFamilyCount = new Set(rows.map((row) => normalizeLabel(row.D)).filter(Boolean)).size;
+      const filledDraftCount = (["A", "B", "C", "D", "E", "F", "G"] as SheetColumnKey[]).filter(
+        (column) => String(draftCells[column] ?? "").trim().length > 0
+      ).length;
+
       return (
         <section ref={sheetEditorRef} className="panel editor-panel editor-panel--sheet">
           <h2>{editorTitle}</h2>
@@ -7849,8 +7897,58 @@ export default function App() {
           </p>
           {draftFormError ? <p className="modal-feedback modal-feedback--error">{draftFormError}</p> : null}
 
+          <div className="card card--spaced feuil7-summary-card">
+            <h3>Vue rapide du catalogue</h3>
+            <div className="feuil7-summary-grid">
+              <div className="feuil7-summary-item">
+                <span>Dégradations recensées</span>
+                <strong>{uniqueDegradationCount}</strong>
+              </div>
+              <div className="feuil7-summary-item">
+                <span>Familles</span>
+                <strong>{uniqueFamilyCount}</strong>
+              </div>
+              <div className="feuil7-summary-item">
+                <span>Causes détaillées</span>
+                <strong>{causeRowsCount}</strong>
+              </div>
+              <div className="feuil7-summary-item">
+                <span>Champs remplis</span>
+                <strong>{filledDraftCount} / 7</strong>
+              </div>
+            </div>
+          </div>
+
+          {(draftCells.C || draftCells.B || draftCells.D || draftCells.E) && (
+            <div className="card card--spaced feuil7-preview-card">
+              <h3>Fiche en cours</h3>
+              <div className="feuil7-preview-grid">
+                <div className="feuil7-preview-item">
+                  <span>Dégradation</span>
+                  <strong>{toDisplay(draftCells.C)}</strong>
+                </div>
+                <div className="feuil7-preview-item">
+                  <span>Référence</span>
+                  <strong>{toDisplay(draftCells.B)}</strong>
+                </div>
+                <div className="feuil7-preview-item">
+                  <span>Famille</span>
+                  <strong>{toDisplay(draftCells.D)}</strong>
+                </div>
+                <div className="feuil7-preview-item">
+                  <span>Sous-famille</span>
+                  <strong>{toDisplay(draftCells.E)}</strong>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="card card--spaced">
             <h3>Identification de la dégradation</h3>
+            <p className="muted">
+              Identifiez d'abord clairement la dégradation dans le catalogue. Cette base sert ensuite à alimenter
+              l'aide à la décision, les causes probables et les traitements de référence.
+            </p>
             <div className="cells-grid">
               {(["A", "B", "C"] as SheetColumnKey[]).map((column) => renderEditorField(column))}
             </div>
@@ -7858,6 +7956,10 @@ export default function App() {
 
           <div className="card card--spaced">
             <h3>Classement</h3>
+            <p className="muted">
+              Utilisez la famille et la sous-famille pour regrouper visuellement les dégradations proches et faciliter
+              les recherches dans le catalogue.
+            </p>
             <div className="cells-grid">
               {(["D", "E"] as SheetColumnKey[]).map((column) => renderEditorField(column))}
             </div>
@@ -7865,6 +7967,10 @@ export default function App() {
 
           <div className="card card--spaced">
             <h3>Observation et cause</h3>
+            <p className="muted">
+              La note décrit le contexte utile. La cause probable doit rester exploitable dans l'aide à la décision et
+              dans le catalogue enrichi des dégradations.
+            </p>
             <div className="cells-grid">
               {(["F", "G"] as SheetColumnKey[]).map((column) => renderEditorField(column))}
             </div>
@@ -8504,26 +8610,6 @@ export default function App() {
             </div>
 
             <div className="card">
-              <h3>Stationnement recensé</h3>
-              <ul className="count-list">
-                {feuil5Groups.map((group) => {
-                  const count = group.rows.filter(
-                    (item) =>
-                      hasFeuil5ParkingValue(item.parkingLeft) ||
-                      hasFeuil5ParkingValue(item.parkingRight) ||
-                      hasFeuil5ParkingValue(item.parkingOther)
-                  ).length;
-                  return (
-                    <li key={`${group.sapCode}-parking`}>
-                      <span>{group.sapCode}</span>
-                      <strong>{count}</strong>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-
-            <div className="card">
               <h3>Assainissement sous surveillance</h3>
               <ul className="count-list">
                 {feuil5Groups.map((group) => {
@@ -8651,14 +8737,13 @@ export default function App() {
                                         item.sourceRow,
                                         "Ce profil centralisé n'a pas de ligne source Feuil5 modifiable."
                                       )
-                                    : void handleCreateSourceRowAndEdit(
-                                        "Feuil5",
+                                    : handleStartPrefilledFeuil5Draft(
                                         buildFeuil5SourcePayload(item),
-                                        `Ligne source Feuil5 créée pour ${toDisplay(item.roadLabel)} puis ouverte en édition.`
+                                        `Complément ${toDisplay(item.roadLabel)} chargé dans l'éditeur. Complétez les champs manquants puis enregistrez.`
                                       )
                                 }
-                                title={item.sourceRow ? "Éditer" : "Créer la ligne source puis éditer"}
-                                aria-label={item.sourceRow ? "Éditer" : "Créer la ligne source puis éditer"}
+                                title={item.sourceRow ? "Éditer" : "Ouvrir dans l'éditeur"}
+                                aria-label={item.sourceRow ? "Éditer" : "Ouvrir dans l'éditeur"}
                               >
                                 <Pencil size={15} aria-hidden="true" />
                               </button>
@@ -8716,6 +8801,123 @@ export default function App() {
     );
   }
 
+  function renderFeuil7View() {
+    const totalRows = rows.length;
+    const uniqueDegradationCount = new Set(
+      rows.map((row) => normalizeLabel(row.C)).filter(Boolean)
+    ).size;
+    const uniqueCategoryCount = new Set(
+      rows.map((row) => normalizeLabel(row.A)).filter(Boolean)
+    ).size;
+    const detailedCauseCount = rows.filter((row) => String(row.G ?? "").trim()).length;
+
+    return (
+      <main className="workspace">
+        {renderSheetEditorPanel()}
+
+        <section className="panel table-panel sheet-print-view">
+          {renderStandardSheetPrintHeader(
+            activeSheet ? getSheetDisplayName(activeSheet.name) : "Causes",
+            activeSheet ? getSheetPrintSubtitle(activeSheet.name) : getSheetPrintSubtitle("Feuil7")
+          )}
+          <div className="dashboard-card__header">
+            <div>
+              <h2>{activeSheet ? getSheetDisplayName(activeSheet.name) : "Causes"}</h2>
+              <p className="muted">
+                Catalogue structuré des dégradations, de leurs familles et des causes probables utiles à la décision.
+              </p>
+            </div>
+            <div className="sheet-header-actions">
+              <div className="measurement-toolbar__meta">
+                <span className="pill">Lignes: {totalRows}</span>
+                <span className="pill">Dégradations: {uniqueDegradationCount}</span>
+                <span className="pill">Catégories: {uniqueCategoryCount}</span>
+                <span className="pill">Causes détaillées: {detailedCauseCount}</span>
+              </div>
+              {renderSheetPrintButton(activeSheet ? getSheetDisplayName(activeSheet.name) : "Causes")}
+            </div>
+          </div>
+
+          <div className="table-toolbar">
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Rechercher référence, dégradation, famille, cause"
+            />
+            <span className="muted">{status?.sheetCounts?.Feuil7 ?? 0} ligne(s) en base</span>
+          </div>
+
+          <div className="table-wrap">
+            <table className="table--feuil7">
+              <thead>
+                <tr>
+                  <th className="col-actions">Actions</th>
+                  <th>N°</th>
+                  <th>Catégorie</th>
+                  <th>Référence</th>
+                  <th>Dégradation</th>
+                  <th>Famille / Sous-famille</th>
+                  <th>Cause probable</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row, index) => (
+                  <tr key={row.id} className={editingRowId === row.id ? "is-selected" : ""}>
+                    <td className="col-actions">
+                      <div className="row-buttons">
+                        <button
+                          className="row-action row-action--icon"
+                          type="button"
+                          onClick={() => handleEdit(row)}
+                          title="Éditer"
+                          aria-label="Éditer"
+                        >
+                          <Pencil size={16} aria-hidden="true" />
+                        </button>
+                        <button
+                          className="row-action row-action--danger row-action--icon"
+                          type="button"
+                          onClick={() => handleDeleteRow(row.id)}
+                          title="Supprimer"
+                          aria-label="Supprimer"
+                        >
+                          <Trash2 size={16} aria-hidden="true" />
+                        </button>
+                      </div>
+                    </td>
+                    <td>{index + 1}</td>
+                    <td>{toDisplay(row.A)}</td>
+                    <td>{toDisplay(row.B)}</td>
+                    <td>
+                      <div className="table-cell-stack">
+                        <strong>{toDisplay(row.C)}</strong>
+                      </div>
+                    </td>
+                    <td>
+                      <div className="table-cell-stack">
+                        <strong>{toDisplay(row.D)}</strong>
+                        <span>{toDisplay(row.E)}</span>
+                      </div>
+                    </td>
+                    <td title={String(row.G ?? "")}>{trimPreviewText(row.G, 220) || "-"}</td>
+                    <td title={String(row.F ?? "")}>{trimPreviewText(row.F, 160) || "-"}</td>
+                  </tr>
+                ))}
+                {rows.length === 0 ? (
+                  <tr>
+                    <td colSpan={8}>{isLoadingRows ? "Chargement..." : "Aucune ligne."}</td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+          {renderStandardSheetPrintFooter()}
+        </section>
+      </main>
+    );
+  }
+
   function renderSheetView() {
     if (activeSheet?.name === "Feuil1") {
       return renderFeuil1View();
@@ -8731,6 +8933,9 @@ export default function App() {
     }
     if (activeSheet?.name === "Feuil6") {
       return renderFeuil6View();
+    }
+    if (activeSheet?.name === "Feuil7") {
+      return renderFeuil7View();
     }
 
     return (
@@ -8909,7 +9114,7 @@ export default function App() {
                 <X size={14} aria-hidden="true" />
               </button>
             ) : (
-              <button className="integrity-alert__action" type="button" onClick={() => setActiveView("dashboard")}>
+              <button className="integrity-alert__action" type="button" onClick={handleManageIntegrityFromAlert}>
                 Gérer
               </button>
             )}
@@ -8944,7 +9149,7 @@ export default function App() {
             <History size={16} aria-hidden="true" />
             <span>Historique ({status?.decisionHistoryCount ?? 0})</span>
           </button>
-          {definitions.map((sheet) => (
+          {definitions.filter((sheet) => sheet.name !== "Feuil7").map((sheet) => (
             <button
               key={sheet.name}
               className={activeView === `sheet:${sheet.name}` ? "active" : ""}

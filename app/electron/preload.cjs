@@ -47,7 +47,9 @@ contextBridge.exposeInMainWorld("padApp", {
     deleteRow: (measurementId) => ipcRenderer.invoke("measurement:deleteRow", measurementId)
   },
   degradations: {
-    list: () => ipcRenderer.invoke("degradations:list")
+    list: () => ipcRenderer.invoke("degradations:list"),
+    upsert: (payload) => ipcRenderer.invoke("degradations:upsert", payload),
+    delete: (degradationId) => ipcRenderer.invoke("degradations:delete", degradationId)
   },
   drainageRules: {
     list: () => ipcRenderer.invoke("drainageRules:list"),

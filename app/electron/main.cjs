@@ -1,6 +1,7 @@
 ﻿const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
 const path = require("path");
 const fs = require("fs");
+const http = require("http");
 const { getAppMetadata } = require("./app-metadata.cjs");
 
 const isDev = !app.isPackaged;
@@ -9,6 +10,7 @@ let mainWindow = null;
 let splashWindow = null;
 let startupFallbackTimer = null;
 let startupFinalizeTimer = null;
+let startupReadyNotified = false;
 let splashStageState = {
   status: "Initialisation du logiciel",
   caption: "Préparation de l'environnement",
@@ -40,7 +42,7 @@ if (!hasSingleInstanceLock) {
   app.quit();
 }
 
-async function createMainWindow() {
+function buildMainWindow() {
   const win = new BrowserWindow({
     show: false,
     width: 1320,
@@ -56,24 +58,73 @@ async function createMainWindow() {
     }
   });
 
-  const bundledIndexPath = path.join(__dirname, "../web/dist/index.html");
-  if (isDev) {
-    try {
-      await win.loadURL("http://localhost:5173");
-      win.webContents.openDevTools({ mode: "detach" });
-    } catch (error) {
-      console.warn("[PAD] Serveur Vite indisponible, bascule sur le build local.", error?.message || error);
-      await win.loadFile(bundledIndexPath);
-    }
-  } else {
-    await win.loadFile(bundledIndexPath);
-  }
-
   win.on("closed", () => {
     if (mainWindow === win) {
       mainWindow = null;
     }
   });
+
+  return win;
+}
+
+function isDevServerReachable(url) {
+  return new Promise((resolve) => {
+    const request = http.get(url, (response) => {
+      response.resume();
+      resolve((response.statusCode || 0) >= 200 && (response.statusCode || 0) < 500);
+    });
+
+    request.setTimeout(1200, () => {
+      request.destroy();
+      resolve(false);
+    });
+
+    request.on("error", () => {
+      resolve(false);
+    });
+  });
+}
+
+async function createMainWindow() {
+  let win = buildMainWindow();
+  win.once("ready-to-show", () => {
+    if (!startupReadyNotified) {
+      clearStartupFinalizeTimer();
+      startupFinalizeTimer = setTimeout(finalizeStartup, 250);
+    }
+  });
+
+  const bundledIndexPath = path.join(__dirname, "../web/dist/index.html");
+  if (isDev) {
+    const devServerUrl = "http://localhost:5173";
+    const canUseDevServer = await isDevServerReachable(devServerUrl);
+    if (canUseDevServer) {
+      try {
+        await win.loadURL(devServerUrl);
+        if (!win.isDestroyed()) {
+          win.webContents.openDevTools({ mode: "detach" });
+        }
+      } catch (error) {
+        console.warn("[PAD] Chargement Vite échoué, bascule sur le build local.", error?.message || error);
+        if (!win.isDestroyed()) {
+          win.destroy();
+        }
+        win = buildMainWindow();
+        win.once("ready-to-show", () => {
+          if (!startupReadyNotified) {
+            clearStartupFinalizeTimer();
+            startupFinalizeTimer = setTimeout(finalizeStartup, 250);
+          }
+        });
+        await win.loadFile(bundledIndexPath);
+      }
+    } else {
+      console.warn("[PAD] Serveur Vite indisponible, bascule sur le build local.");
+      await win.loadFile(bundledIndexPath);
+    }
+  } else {
+    await win.loadFile(bundledIndexPath);
+  }
 
   mainWindow = win;
   return win;
@@ -357,6 +408,7 @@ function registerIpcHandlers() {
     event.returnValue = { appName, appVersion };
   });
   ipcMain.on("app:ready", () => {
+    startupReadyNotified = true;
     setSplashStage("Ouverture du logiciel", "Préparation de l'interface", 100);
     clearStartupFinalizeTimer();
     startupFinalizeTimer = setTimeout(finalizeStartup, 220);
@@ -421,6 +473,8 @@ function registerIpcHandlers() {
   ipcMain.handle("measurement:upsertRow", (_event, payload) => dataLayer.upsertRoadMeasurement(payload));
   ipcMain.handle("measurement:deleteRow", (_event, measurementId) => dataLayer.deleteRoadMeasurement(measurementId));
   ipcMain.handle("degradations:list", () => dataLayer.listDegradationCatalog());
+  ipcMain.handle("degradations:upsert", (_event, payload) => dataLayer.upsertDegradationCatalogItem(payload));
+  ipcMain.handle("degradations:delete", (_event, degradationId) => dataLayer.deleteDegradationCatalogItem(degradationId));
   ipcMain.handle("drainageRules:list", () => dataLayer.listDrainageRules());
   ipcMain.handle("drainageRules:upsert", (_event, payload) => dataLayer.upsertDrainageRule(payload));
   ipcMain.handle("drainageRules:delete", (_event, ruleId) => dataLayer.deleteDrainageRule(ruleId));
@@ -656,6 +710,7 @@ process.on("unhandledRejection", (reason) => {
 
 async function bootstrap() {
   try {
+    startupReadyNotified = false;
     createSplashWindow();
     setSplashStage("Initialisation du logiciel", "Préparation de l'environnement", 18);
     dataLayer = await initializeDataLayerWithRetry();
@@ -668,6 +723,7 @@ async function bootstrap() {
 
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) {
+        startupReadyNotified = false;
         createSplashWindow();
         setSplashStage("Initialisation du logiciel", "Préparation de l'environnement", 18);
         void createMainWindow();

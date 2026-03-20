@@ -10,6 +10,7 @@ import type {
   DecisionResult,
   DrainageRule,
   DegradationItem,
+  DegradationCatalogPayload,
   ImportPreview,
   MeasurementCampaignItem,
   MeasurementCampaignPayload,
@@ -84,6 +85,8 @@ declare global {
       };
       degradations: {
         list: () => Promise<DegradationItem[]>;
+        upsert: (payload: DegradationCatalogPayload) => Promise<DegradationItem | null>;
+        delete: (degradationId: number) => Promise<{ deleted: boolean }>;
       };
       drainageRules: {
         list: () => Promise<DrainageRule[]>;
