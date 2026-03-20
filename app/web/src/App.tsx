@@ -553,6 +553,15 @@ function toDeflectionRecommendationLabel(value: unknown) {
   return text;
 }
 
+function normalizeComparisonText(value: unknown) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase();
+}
+
 function describeRoadState(value: unknown): {
   label: string;
   tone: "ok" | "warning" | "danger" | "info" | "neutral";
@@ -767,6 +776,45 @@ function parseFeuil6SapMarker(value: unknown) {
     return `SAP${explicit[1]}`;
   }
   return "";
+}
+
+function trimPreviewText(value: unknown, maxLength = 180) {
+  const text = String(value ?? "").trim();
+  if (!text) {
+    return "";
+  }
+  if (text.length <= maxLength) {
+    return text;
+  }
+  return `${text.slice(0, Math.max(0, maxLength - 1)).trim()}…`;
+}
+
+function getDegradationPrimaryCause(item: DegradationItem | null) {
+  return item?.causes.find((cause) => String(cause ?? "").trim()) || "";
+}
+
+function getDegradationOtherCauses(item: DegradationItem | null) {
+  if (!item) {
+    return [];
+  }
+  const primaryCause = getDegradationPrimaryCause(item);
+  return item.causes.filter((cause) => String(cause ?? "").trim() && cause !== primaryCause);
+}
+
+function formatDegradationCausePreview(item: DegradationItem) {
+  const causes = item.causes.map((cause) => String(cause ?? "").trim()).filter(Boolean);
+  if (causes.length === 0) {
+    return "Aucune cause renseignée";
+  }
+  if (causes.length === 1) {
+    return causes[0];
+  }
+  const preview = causes.slice(0, 2).join(" ; ");
+  return causes.length > 2 ? `${preview} + ${causes.length - 2} autre(s)` : preview;
+}
+
+function getDegradationReferenceTreatment(item: DegradationItem) {
+  return trimPreviewText(item.preventiveCriterion || item.solution || "", 220) || "-";
 }
 
 function getSheetDisplayName(sheetName: string) {
@@ -1168,7 +1216,9 @@ function buildFallbackDegradationFromHistory(row: DecisionHistoryItem): Degradat
     causes: row.probableCause ? [row.probableCause] : [],
     solution: row.maintenanceSolution || "",
     solutionSource: row.maintenanceSolution ? "OVERRIDE" : "MISSING",
-    templateKey: null
+    templateKey: null,
+    preventiveCriterion: row.maintenanceSolution || "",
+    treatmentDetails: row.maintenanceSolution || ""
   };
 }
 
@@ -1387,6 +1437,7 @@ export default function App() {
     const hasSolution =
       Boolean(String(decisionResult.maintenanceSolution || "").trim()) &&
       decisionResult.degradation.solutionSource !== "MISSING";
+    const hasTreatmentDetails = Boolean(String(decisionResult.degradation.treatmentDetails || "").trim());
     const hasContextualIntervention = Boolean(
       decisionResult.contextualIntervention && !isToDetermineIntervention(decisionResult.contextualIntervention)
     );
@@ -1409,6 +1460,10 @@ export default function App() {
       confidenceScore += 1;
     } else {
       warnings.push("Solution de maintenance encore à préciser dans le catalogue.");
+    }
+
+    if (!hasTreatmentDetails) {
+      warnings.push("Le mode opératoire détaillé n'est pas encore renseigné pour cette dégradation.");
     }
 
     if (askDrainage) {
@@ -1457,6 +1512,9 @@ export default function App() {
       hasSolution
         ? `La dégradation ${decisionResult.degradation.name.toLowerCase()} active la solution de maintenance ${decisionResult.maintenanceSolution.toLowerCase()}.`
         : `La dégradation ${decisionResult.degradation.name.toLowerCase()} a été reconnue, mais sa solution de maintenance reste à préciser dans le catalogue.`,
+      hasTreatmentDetails
+        ? "Le traitement détaillé de la dégradation est disponible pour l'exploitation terrain."
+        : "Le traitement détaillé de la dégradation reste à compléter.",
       askDrainage
         ? `L'assainissement a été interrogé explicitement : ${decisionResult.drainage.recommendation}${
             decisionResult.drainage.needsAttention ? " Cette règle renforce la vigilance sur la décision finale." : "."
@@ -1494,6 +1552,28 @@ export default function App() {
       status: compareRecommendations(referenceIntervention, computedRecommendation)
     };
   }, [decisionResult]);
+  const decisionTreatment = useMemo(() => {
+    if (!decisionResult) {
+      return null;
+    }
+
+    const preventiveCriterion =
+      String(decisionResult.degradation.preventiveCriterion || "").trim() ||
+      String(decisionResult.maintenanceSolution || "").trim() ||
+      String(decisionSummary?.finalRecommendation || "").trim();
+    const treatmentDetails =
+      String(decisionResult.degradation.treatmentDetails || "").trim() ||
+      String(decisionResult.maintenanceSolution || "").trim();
+    const otherCauses = (decisionResult.degradation.causes || []).filter((cause) => {
+      return normalizeComparisonText(cause) !== normalizeComparisonText(decisionResult.probableCause || "");
+    });
+
+    return {
+      preventiveCriterion,
+      treatmentDetails,
+      otherCauses
+    };
+  }, [decisionResult, decisionSummary]);
   const filteredDegradations = useMemo(() => {
     const searchTerm = degradationSearch.trim().toLowerCase();
     if (!searchTerm) {
@@ -5125,6 +5205,15 @@ export default function App() {
                   <p className="decision-hero__cause">
                     <strong>Cause probable :</strong> {decisionResult.probableCause || "Non renseignée"}
                   </p>
+                  <p className="decision-hero__cause">
+                    <strong>Critère préventif :</strong>{" "}
+                    {decisionTreatment?.preventiveCriterion || decisionSummary?.finalRecommendation || "À préciser"}
+                  </p>
+                  {decisionTreatment?.otherCauses.length ? (
+                    <p className="decision-hero__cause">
+                      <strong>Autres causes recensées :</strong> {decisionTreatment.otherCauses.join(" ; ")}
+                    </p>
+                  ) : null}
                 </div>
 
                 <div className="card decision-card--with-bottom-gap">
@@ -5161,6 +5250,19 @@ export default function App() {
                     <strong>Orientation déflexion :</strong>{" "}
                     {toDeflectionRecommendationLabel(decisionResult.deflection.recommendation)}
                   </p>
+                </div>
+
+                <div className="card card--full">
+                  <h3>Comment traiter cette dégradation</h3>
+                  {decisionTreatment?.treatmentDetails ? (
+                    <div className="decision-treatment-details">
+                      {decisionTreatment.treatmentDetails.split(/\n+/).map((item, index) => (
+                        <p key={`decision-treatment-${index}`}>{item}</p>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="muted">Le mode opératoire détaillé n'est pas encore renseigné pour cette dégradation.</p>
+                  )}
                 </div>
 
                 <div className="card card--full">
@@ -5392,17 +5494,20 @@ export default function App() {
   }
 
   function renderDegradationsView() {
+    const selectedPrimaryCause = getDegradationPrimaryCause(selectedDegradation);
+    const selectedOtherCauses = getDegradationOtherCauses(selectedDegradation);
+
     return (
       <main className="workspace workspace--full">
         <section className="panel table-panel table-panel--full sheet-print-view">
           {renderStandardSheetPrintHeader(
             "Catalogue des dégradations",
-            "Liste des dégradations, causes probables et solution de maintenance."
+            "Fiches métier des dégradations : causes, critère préventif, traitement et paramétrage."
           )}
           <div className="dashboard-card__header">
             <div>
               <h2>Catalogue des dégradations</h2>
-              <p className="muted">Liste des dégradations, causes probables et solution de maintenance.</p>
+              <p className="muted">Chaque dégradation regroupe ses causes, son traitement de référence et son mode opératoire détaillé.</p>
             </div>
             <div className="sheet-header-actions">
               <button
@@ -5433,10 +5538,9 @@ export default function App() {
                 <tr>
                   <th className="col-actions">Action</th>
                   <th>Dégradation</th>
-                  <th>Nb causes</th>
-                  <th>Cause principale</th>
-                  <th>Source solution</th>
-                  <th>Solution maintenance</th>
+                  <th>Causes associées</th>
+                  <th>Critère préventif</th>
+                  <th>Traitement de référence</th>
                 </tr>
               </thead>
               <tbody>
@@ -5467,16 +5571,20 @@ export default function App() {
                         </button>
                       </div>
                     </td>
-                    <td>{item.name}</td>
-                    <td>{item.causes.length}</td>
-                    <td>{item.causes[0] || "-"}</td>
-                    <td>{toSolutionSourceLabel(item.solutionSource)}</td>
-                    <td>{item.solution}</td>
+                    <td>
+                      <div className="degradation-table-cell">
+                        <strong>{item.name}</strong>
+                        <span className="degradation-table-meta">{toSolutionSourceLabel(item.solutionSource)}</span>
+                      </div>
+                    </td>
+                    <td>{formatDegradationCausePreview(item)}</td>
+                    <td>{trimPreviewText(item.preventiveCriterion || "-", 180) || "-"}</td>
+                    <td>{getDegradationReferenceTreatment(item)}</td>
                   </tr>
                 ))}
                 {filteredDegradations.length === 0 ? (
                   <tr>
-                    <td colSpan={6}>Aucune dégradation trouvée.</td>
+                    <td colSpan={5}>Aucune dégradation trouvée.</td>
                   </tr>
                 ) : null}
               </tbody>
@@ -5488,19 +5596,80 @@ export default function App() {
               ref={degradationEditorRef}
               className={`card card--spaced${isDegradationEditorHighlighted ? " card--highlighted" : ""}`}
             >
-              <h3>Causes détaillées: {selectedDegradation.name}</h3>
-              <p>
-                <strong>Source solution:</strong> {toSolutionSourceLabel(selectedDegradation.solutionSource)}
-              </p>
-              <ul>
-                {selectedDegradation.causes.length > 0 ? (
-                  selectedDegradation.causes.map((cause, index) => <li key={`${selectedDegradation.id}-cause-${index}`}>{cause}</li>)
-                ) : (
-                  <li>Aucune cause détaillée pour cette dégradation.</li>
-                )}
-              </ul>
+              <div className="dashboard-card__header">
+                <div>
+                  <h3>Fiche dégradation : {selectedDegradation.name}</h3>
+                  <p className="muted">Une seule fiche rassemble la dégradation, ses causes et sa réponse métier.</p>
+                </div>
+              </div>
 
-              <h3>Paramétrage solution de maintenance</h3>
+              <div className="measurement-summary__grid degradation-summary-grid">
+                <div className="measurement-summary__item">
+                  <span>Code</span>
+                  <strong>{selectedDegradation.code}</strong>
+                </div>
+                <div className="measurement-summary__item">
+                  <span>Causes associées</span>
+                  <strong>{selectedDegradation.causes.length}</strong>
+                </div>
+                <div className="measurement-summary__item">
+                  <span>Source de solution</span>
+                  <strong>{toSolutionSourceLabel(selectedDegradation.solutionSource)}</strong>
+                </div>
+                <div className="measurement-summary__item">
+                  <span>Solution courante</span>
+                  <strong>{selectedDegradation.solution || "-"}</strong>
+                </div>
+              </div>
+
+              <div className="degradation-fiche-grid">
+                <div className="degradation-fiche-panel">
+                  <h4>Causes associées</h4>
+                  {selectedPrimaryCause ? (
+                    <div className="degradation-cause-primary">
+                      <span className="degradation-cause-primary__label">Cause principale</span>
+                      <strong>{selectedPrimaryCause}</strong>
+                    </div>
+                  ) : (
+                    <p className="muted">Aucune cause détaillée n'est encore renseignée pour cette dégradation.</p>
+                  )}
+
+                  {selectedOtherCauses.length > 0 ? (
+                    <ul className="degradation-cause-list">
+                      {selectedOtherCauses.map((cause, index) => (
+                        <li key={`${selectedDegradation.id}-cause-${index}`}>{cause}</li>
+                      ))}
+                    </ul>
+                  ) : selectedPrimaryCause ? (
+                    <p className="muted">Aucune autre cause complémentaire n'est encore recensée.</p>
+                  ) : null}
+                </div>
+
+                <div className="degradation-fiche-panel">
+                  <h4>Réponse métier</h4>
+                  <p>
+                    <strong>Critère préventif :</strong> {selectedDegradation.preventiveCriterion || selectedDegradation.solution || "-"}
+                  </p>
+                  <p>
+                    <strong>Traitement de référence :</strong> {selectedDegradation.solution || "-"}
+                  </p>
+                </div>
+
+                <div className="degradation-fiche-panel degradation-fiche-panel--full">
+                  <h4>Mode opératoire détaillé</h4>
+                  <div className="decision-treatment-details">
+                    {(selectedDegradation.treatmentDetails || "").trim() ? (
+                      selectedDegradation.treatmentDetails
+                        .split(/\n+/)
+                        .map((item, index) => <p key={`${selectedDegradation.id}-treatment-${index}`}>{item}</p>)
+                    ) : (
+                      <p>Aucun mode opératoire détaillé n'est encore renseigné pour cette dégradation.</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <h3>Paramétrage de la solution de maintenance</h3>
               {solutionFormError ? <p className="modal-feedback modal-feedback--error">{solutionFormError}</p> : null}
               <label htmlFor="template-key">
                 Modèle de solution <span className="field-label__required">*</span>

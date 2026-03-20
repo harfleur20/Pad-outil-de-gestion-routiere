@@ -266,6 +266,8 @@ export type DegradationItem = {
   solution: string;
   solutionSource: "TEMPLATE" | "OVERRIDE" | "MISSING";
   templateKey: string | null;
+  preventiveCriterion: string;
+  treatmentDetails: string;
 };
 
 export type MaintenanceSolutionTemplate = {

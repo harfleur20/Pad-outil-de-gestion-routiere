@@ -148,6 +148,30 @@ const DB_COLUMN_KEYS = COLUMN_KEYS.map((key) => `col_${key.toLowerCase()}`);
 const DB_COLUMN_MAP = Object.fromEntries(COLUMN_KEYS.map((key, index) => [key, DB_COLUMN_KEYS[index]]));
 const DEFAULT_INTERVENTION_TEXT = "a determiner (A D)";
 const BUNDLED_SEED_DB_FILENAME = "pad-maintenance.seed.db";
+const OPTIONAL_IMPORT_SHEETS = new Set(["Feuil4", "Feuil5"]);
+const WORKBOOK_SHEET_ALIASES = {
+  Feuil1: ["deflexions", "déflexions"],
+  Feuil2: ["listes des sections", "listing des sections"],
+  Feuil3: ["inventaire des voies"],
+  Feuil4: ["programme d'evaluation", "programme d’évaluation", "programme evaluation"],
+  Feuil5: ["sections avec assainissement", "profil complet de section"],
+  Feuil6: ["adressage des voies", "répertoire d'adressage codifié des voies", "repertoire d'adressage codifie des voies"],
+  Feuil7: ["degradations et causes probable", "dégradations et causes probable"]
+};
+const SUPPLEMENTAL_SOLUTION_SHEET_NAMES = ["solutions des dégradations", "solutions des degradations"];
+const SUPPLEMENTAL_SOLUTION_DEGRADATION_MAPPINGS = [
+  { pattern: /NIDS?\s+DE\s+POULE/i, codes: ["NIDS_DE_POULE"], name: "Nids de poule" },
+  { pattern: /ORNIERAGE/i, codes: ["ORNIERAGES"], name: "ORNIERAGES" },
+  { pattern: /AFFAISSEMENT/i, codes: ["AFFAISSEMENT"], name: "AFFAISSEMENT" },
+  { pattern: /BOURRELETS?/i, codes: ["BOURRELETS"], name: "Les bourrelets" },
+  { pattern: /FISSURES?\s+TRANSVERSALES?/i, codes: ["FISSURES_TRANSVERSALE"], name: "FISSURES TRANSVERSALE" },
+  { pattern: /FISSURES?\s+LONGITUDINALES?/i, codes: ["FISSURES"], name: "FISSURES" },
+  { pattern: /FAIEN[ÇC]AGE/i, codes: ["FAIENCAGES"], name: "FAIENCAGES" },
+  { pattern: /DESENROBAGE|PLUMAGE|PEIGNAGE/i, codes: ["DESENROBAGE", "PLUMAGE", "PEIGNAGE"], name: "DESENROBAGE / PLUMAGE / PEIGNAGE" },
+  { pattern: /PELADE/i, codes: ["PELADE"], name: "PELADE" },
+  { pattern: /EPAUF|DENTELLES/i, codes: ["EPAUFFURES"], name: "EPAUFFURES" },
+  { pattern: /RESSUAGE/i, codes: ["RESSUAGE"], name: "RESSUAGE" }
+];
 const SOLUTION_TEMPLATES_SEED = [
   {
     templateKey: "REPRISE_SURFACE_CHAUSSEE",
@@ -395,6 +419,18 @@ function preEnsureLegacyColumns(db) {
   ensureColumnIfMissing(db, "degradation_cause", "degradation_code", "degradation_code TEXT NOT NULL DEFAULT ''");
   ensureColumnIfMissing(
     db,
+    "degradation_definition",
+    "preventive_criterion",
+    "preventive_criterion TEXT NOT NULL DEFAULT ''"
+  );
+  ensureColumnIfMissing(
+    db,
+    "degradation_definition",
+    "treatment_details",
+    "treatment_details TEXT NOT NULL DEFAULT ''"
+  );
+  ensureColumnIfMissing(
+    db,
     "maintenance_intervention",
     "responsible_name",
     "responsible_name TEXT NOT NULL DEFAULT ''"
@@ -518,7 +554,9 @@ function migrateLegacySchema(db) {
       "reference TEXT NOT NULL DEFAULT ''",
       "family TEXT NOT NULL DEFAULT ''",
       "subfamily TEXT NOT NULL DEFAULT ''",
-      "notes TEXT NOT NULL DEFAULT ''"
+      "notes TEXT NOT NULL DEFAULT ''",
+      "preventive_criterion TEXT NOT NULL DEFAULT ''",
+      "treatment_details TEXT NOT NULL DEFAULT ''"
     ],
     decision_history: [
       "road_id INTEGER",
@@ -873,6 +911,8 @@ function ensureSchema(db) {
       family TEXT NOT NULL DEFAULT '',
       subfamily TEXT NOT NULL DEFAULT '',
       notes TEXT NOT NULL DEFAULT '',
+      preventive_criterion TEXT NOT NULL DEFAULT '',
+      treatment_details TEXT NOT NULL DEFAULT '',
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       FOREIGN KEY (degradation_code) REFERENCES degradation(degradation_code) ON DELETE CASCADE
     );
@@ -1894,14 +1934,18 @@ function syncDegradationDefinitions(db, definitions, allowedCodes) {
       family,
       subfamily,
       notes,
+      preventive_criterion,
+      treatment_details,
       updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
     ON CONFLICT(degradation_code) DO UPDATE SET
       category = excluded.category,
       reference = excluded.reference,
       family = excluded.family,
       subfamily = excluded.subfamily,
       notes = excluded.notes,
+      preventive_criterion = excluded.preventive_criterion,
+      treatment_details = excluded.treatment_details,
       updated_at = datetime('now')
   `);
 
@@ -1918,7 +1962,9 @@ function syncDegradationDefinitions(db, definitions, allowedCodes) {
       toText(item.reference),
       toText(item.family),
       toText(item.subfamily),
-      toText(item.notes)
+      toText(item.notes),
+      toText(item.preventiveCriterion),
+      toText(item.treatmentDetails)
     );
   }
 
@@ -2463,7 +2509,9 @@ function buildDegradationDefinitions(db) {
         reference: toText(row.B),
         family: toText(row.D),
         subfamily: toText(row.E),
-        notes: toText(row.F)
+        notes: toText(row.F),
+        preventiveCriterion: "",
+        treatmentDetails: ""
       });
       continue;
     }
@@ -2474,6 +2522,54 @@ function buildDegradationDefinitions(db) {
     current.family = current.family || toText(row.D);
     current.subfamily = current.subfamily || toText(row.E);
     current.notes = current.notes || toText(row.F);
+  }
+
+  const existingRows = db
+    .prepare(
+      `
+      SELECT
+        dd.degradation_code AS degradationCode,
+        dd.category,
+        dd.reference,
+        dd.family,
+        dd.subfamily,
+        dd.notes,
+        dd.preventive_criterion AS preventiveCriterion,
+        dd.treatment_details AS treatmentDetails
+      FROM degradation_definition dd
+      ORDER BY dd.degradation_code
+    `
+    )
+    .all();
+
+  for (const row of existingRows) {
+    const code = normalizeDegradationKey(row.degradationCode);
+    if (!code) {
+      continue;
+    }
+
+    if (!map.has(code)) {
+      map.set(code, {
+        degradationCode: code,
+        category: toText(row.category),
+        reference: toText(row.reference),
+        family: toText(row.family),
+        subfamily: toText(row.subfamily),
+        notes: toText(row.notes),
+        preventiveCriterion: toText(row.preventiveCriterion),
+        treatmentDetails: toText(row.treatmentDetails)
+      });
+      continue;
+    }
+
+    const current = map.get(code);
+    current.category = current.category || toText(row.category);
+    current.reference = current.reference || toText(row.reference);
+    current.family = current.family || toText(row.family);
+    current.subfamily = current.subfamily || toText(row.subfamily);
+    current.notes = current.notes || toText(row.notes);
+    current.preventiveCriterion = current.preventiveCriterion || toText(row.preventiveCriterion);
+    current.treatmentDetails = current.treatmentDetails || toText(row.treatmentDetails);
   }
 
   return [...map.values()];
@@ -2575,6 +2671,193 @@ function resolveDefaultExcelPath() {
   return null;
 }
 
+function normalizeWorkbookSheetToken(value) {
+  return normalizeText(value).replace(/[^A-Z0-9]/g, "");
+}
+
+function resolveWorkbookSheetName(workbook, sheetRef) {
+  const requestedName = typeof sheetRef === "string" ? sheetRef : sheetRef?.name;
+  const requestedAliases = WORKBOOK_SHEET_ALIASES[requestedName] || [];
+  const candidates = [requestedName, ...requestedAliases].map((item) => normalizeWorkbookSheetToken(item)).filter(Boolean);
+  if (!Array.isArray(workbook?.SheetNames) || candidates.length === 0) {
+    return null;
+  }
+
+  for (const sheetName of workbook.SheetNames) {
+    if (candidates.includes(normalizeWorkbookSheetToken(sheetName))) {
+      return sheetName;
+    }
+  }
+
+  return null;
+}
+
+function hasWorkbookSheet(workbook, sheetRef) {
+  return Boolean(resolveWorkbookSheetName(workbook, sheetRef));
+}
+
+function cleanSupplementalSolutionText(value) {
+  return toText(value)
+    .replace(/^[\s\-•\u00A0]+/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function mapSupplementalSolutionHeading(rawHeading) {
+  const heading = cleanSupplementalSolutionText(rawHeading);
+  if (!heading) {
+    return null;
+  }
+  const normalizedHeading = normalizeText(heading);
+  for (const entry of SUPPLEMENTAL_SOLUTION_DEGRADATION_MAPPINGS) {
+    if (entry.pattern.test(normalizedHeading)) {
+      return {
+        rawHeading: heading,
+        displayName: entry.name,
+        codes: entry.codes
+      };
+    }
+  }
+  return null;
+}
+
+function parseSupplementalSolutionWorkbook(workbook) {
+  const solutionSheetName = SUPPLEMENTAL_SOLUTION_SHEET_NAMES.find((name) => hasWorkbookSheet(workbook, name));
+  if (!solutionSheetName) {
+    return [];
+  }
+
+  const rows = getSheetRows(workbook, solutionSheetName);
+  const grouped = new Map();
+  let currentBlock = null;
+
+  const registerBlock = (mapping) => {
+    currentBlock = mapping;
+    for (const code of mapping.codes) {
+      if (!grouped.has(code)) {
+        grouped.set(code, {
+          degradationCode: code,
+          name: mapping.displayName,
+          causes: [],
+          solutionSummary: "",
+          treatmentDetails: ""
+        });
+      }
+    }
+  };
+
+  for (const row of rows) {
+    const mapping = mapSupplementalSolutionHeading(row.A);
+    if (mapping) {
+      registerBlock(mapping);
+    }
+    if (!currentBlock) {
+      continue;
+    }
+
+    const causeText = cleanSupplementalSolutionText(row.B);
+    const treatmentText = cleanSupplementalSolutionText(row.C);
+    for (const code of currentBlock.codes) {
+      const entry = grouped.get(code);
+      if (!entry) {
+        continue;
+      }
+      if (causeText) {
+        entry.causes.push(causeText);
+      }
+      if (treatmentText) {
+        entry.treatmentDetails = entry.treatmentDetails ? `${entry.treatmentDetails}\n${treatmentText}` : treatmentText;
+        if (!entry.solutionSummary) {
+          entry.solutionSummary = treatmentText;
+        }
+      }
+    }
+  }
+
+  return [...grouped.values()].map((entry) => ({
+    ...entry,
+    causes: [...new Set(entry.causes.map((item) => cleanSupplementalSolutionText(item)).filter(Boolean))],
+    solutionSummary: cleanSupplementalSolutionText(entry.solutionSummary),
+    treatmentDetails: entry.treatmentDetails
+      .split(/\n+/)
+      .map((item) => cleanSupplementalSolutionText(item))
+      .filter(Boolean)
+      .join("\n")
+  }));
+}
+
+function applySupplementalWorkbookImports(db, workbook) {
+  const entries = parseSupplementalSolutionWorkbook(workbook);
+  if (entries.length === 0) {
+    return;
+  }
+
+  const upsertDegradation = db.prepare(`
+    INSERT INTO degradation (degradation_code, name)
+    VALUES (?, ?)
+    ON CONFLICT(degradation_code) DO UPDATE SET
+      name = CASE WHEN excluded.name <> '' THEN excluded.name ELSE degradation.name END
+  `);
+  const ensureDefinition = db.prepare(`
+    INSERT INTO degradation_definition (
+      degradation_code,
+      category,
+      reference,
+      family,
+      subfamily,
+      notes,
+      preventive_criterion,
+      treatment_details,
+      updated_at
+    ) VALUES (?, '', '', '', '', '', '', '', datetime('now'))
+    ON CONFLICT(degradation_code) DO NOTHING
+  `);
+  const updateDefinition = db.prepare(`
+    UPDATE degradation_definition
+    SET preventive_criterion = ?,
+        treatment_details = ?,
+        updated_at = datetime('now')
+    WHERE degradation_code = ?
+  `);
+  const selectExistingCauses = db.prepare(`
+    SELECT cause_text
+    FROM degradation_cause
+    WHERE degradation_code = ?
+    ORDER BY id
+  `);
+  const deleteCauses = db.prepare("DELETE FROM degradation_cause WHERE degradation_code = ?");
+  const insertCause = db.prepare("INSERT OR IGNORE INTO degradation_cause (degradation_code, cause_text) VALUES (?, ?)");
+  const roadIds = db.prepare("SELECT id FROM road ORDER BY id").all().map((row) => Number(row.id));
+  const insertRoadDegradation = db.prepare(`
+    INSERT OR IGNORE INTO road_degradation (road_id, degradation_code, is_active)
+    VALUES (?, ?, 1)
+  `);
+
+  for (const entry of entries) {
+    const degradationCode = normalizeDegradationKey(entry.degradationCode);
+    if (!degradationCode) {
+      continue;
+    }
+
+    upsertDegradation.run(degradationCode, entry.name || degradationCode.replace(/_/g, " "));
+    ensureDefinition.run(degradationCode);
+    updateDefinition.run(entry.solutionSummary, entry.treatmentDetails, degradationCode);
+
+    const existingCauses = selectExistingCauses.all(degradationCode).map((row) => toText(row.cause_text)).filter(Boolean);
+    const mergedCauses = [...new Set([...entry.causes, ...existingCauses].filter(Boolean))];
+    if (mergedCauses.length > 0) {
+      deleteCauses.run(degradationCode);
+      for (const cause of mergedCauses) {
+        insertCause.run(degradationCode, cause);
+      }
+    }
+
+    for (const roadId of roadIds) {
+      insertRoadDegradation.run(roadId, degradationCode);
+    }
+  }
+}
+
 function resolveBundledSeedDatabasePath() {
   const candidates = [
     process.env.PAD_SEED_DB_PATH,
@@ -2651,9 +2934,10 @@ function importFromExcelInternal(db, excelPath) {
   }
 
   const workbook = XLSX.readFile(excelPath);
-  const missingSheets = SHEET_DEFINITIONS.filter((sheet) => !workbook.Sheets[sheet.name]).map((sheet) => sheet.name);
-  if (missingSheets.length > 0) {
-    throw new Error(`Fichier Excel invalide: feuilles manquantes (${missingSheets.join(", ")}).`);
+  const missingSheets = SHEET_DEFINITIONS.filter((sheet) => !hasWorkbookSheet(workbook, sheet)).map((sheet) => sheet.name);
+  const blockingMissingSheets = missingSheets.filter((sheetName) => !OPTIONAL_IMPORT_SHEETS.has(sheetName));
+  if (blockingMissingSheets.length > 0) {
+    throw new Error(`Fichier Excel invalide: feuilles manquantes (${blockingMissingSheets.join(", ")}).`);
   }
 
   const tx = db.transaction(() => {
@@ -2678,6 +2962,7 @@ function importFromExcelInternal(db, excelPath) {
     }
 
     rebuildNormalizedCatalogs(db);
+    applySupplementalWorkbookImports(db, workbook);
     setMeta(db, "last_import_path", excelPath);
     setMeta(db, "last_import_at", new Date().toISOString());
   });
@@ -3511,22 +3796,28 @@ function previewExcelImport(excelPath) {
   const workbook = XLSX.readFile(excelPath);
   const workbookSheetNames = Array.isArray(workbook.SheetNames) ? workbook.SheetNames.map((name) => toText(name)) : [];
   const sheetPreviews = SHEET_DEFINITIONS.map((sheet) => {
-    const rows = workbook.Sheets[sheet.name] ? getSheetRows(workbook, sheet) : [];
+    const present = hasWorkbookSheet(workbook, sheet);
+    const rows = present ? getSheetRows(workbook, sheet) : [];
     return {
       name: sheet.name,
       title: sheet.title,
-      present: Boolean(workbook.Sheets[sheet.name]),
+      present,
       rowCount: rows.length,
       expectedColumns: sheet.columns.length
     };
   });
 
   const missingSheets = sheetPreviews.filter((item) => !item.present).map((item) => item.name);
+  const blockingMissingSheets = missingSheets.filter((sheetName) => !OPTIONAL_IMPORT_SHEETS.has(sheetName));
   const warnings = [
     ...sheetPreviews
       .filter((item) => item.present && item.rowCount === 0)
       .map((item) => `${item.name} est presente mais vide.`),
-    ...missingSheets.map((sheetName) => `${sheetName} est absente du fichier.`)
+    ...missingSheets.map((sheetName) =>
+      OPTIONAL_IMPORT_SHEETS.has(sheetName)
+        ? `${sheetName} est absente du fichier (optionnelle).`
+        : `${sheetName} est absente du fichier.`
+    )
   ];
 
   const estimates = estimateWorkbookEntities(workbook);
@@ -3536,7 +3827,7 @@ function previewExcelImport(excelPath) {
     workbookSheetNames,
     missingSheets,
     warnings,
-    ready: missingSheets.length === 0,
+    ready: blockingMissingSheets.length === 0,
     totals: {
       rows: sheetPreviews.reduce((sum, item) => sum + item.rowCount, 0),
       roads: estimates.roads,
@@ -4598,11 +4889,14 @@ function listDegradationCatalog(db) {
     .prepare(
       `
       SELECT
-        id,
-        degradation_code AS code,
-        name
-      FROM degradation
-      ORDER BY name
+        d.id,
+        d.degradation_code AS code,
+        d.name,
+        COALESCE(dd.preventive_criterion, '') AS preventiveCriterion,
+        COALESCE(dd.treatment_details, '') AS treatmentDetails
+      FROM degradation d
+      LEFT JOIN degradation_definition dd ON dd.degradation_code = d.degradation_code
+      ORDER BY d.name
     `
     )
     .all();
@@ -4639,16 +4933,18 @@ function listDegradationCatalog(db) {
   return items.map((item) => {
     const code = toText(item.code);
     const resolved = resolveSolutionForDegradation(code, templates, rules, overrides);
-    return {
-      id: Number(item.id),
-      code,
-      name: toText(item.name),
-      causes: causesByCode.get(code) || [],
-      solution: resolved.solution,
-      solutionSource: resolved.source,
-      templateKey: resolved.templateKey
-    };
-  });
+      return {
+        id: Number(item.id),
+        code,
+        name: toText(item.name),
+        causes: causesByCode.get(code) || [],
+        solution: resolved.solution,
+        solutionSource: resolved.source,
+        templateKey: resolved.templateKey,
+        preventiveCriterion: toText(item.preventiveCriterion),
+        treatmentDetails: toText(item.treatmentDetails)
+      };
+    });
 }
 
 function evaluateDecision(db, payload = {}) {
@@ -5330,9 +5626,10 @@ function buildDegradationCatalog(db) {
       continue;
     }
 
-    const key = normalizeText(name);
+    const key = normalizeDegradationKey(name);
     if (!map.has(key)) {
       map.set(key, {
+        code: key,
         name,
         causes: []
       });
@@ -5359,8 +5656,44 @@ function buildDegradationCatalog(db) {
     index = cursor - 1;
   }
 
+  const existingRows = db
+    .prepare(
+      `
+      SELECT
+        d.degradation_code AS code,
+        d.name,
+        c.cause_text AS cause
+      FROM degradation d
+      LEFT JOIN degradation_cause c ON c.degradation_code = d.degradation_code
+      ORDER BY d.name, c.id
+    `
+    )
+    .all();
+
+  for (const row of existingRows) {
+    const code = normalizeDegradationKey(row.code);
+    if (!code) {
+      continue;
+    }
+
+    if (!map.has(code)) {
+      map.set(code, {
+        code,
+        name: toText(row.name) || code.replace(/_/g, " "),
+        causes: []
+      });
+    }
+
+    const entry = map.get(code);
+    entry.name = entry.name || toText(row.name) || code.replace(/_/g, " ");
+    const cause = toText(row.cause);
+    if (isCauseLabel(cause)) {
+      entry.causes.push(cause);
+    }
+  }
+
   const items = [...map.values()].map((entry, index) => {
-    const degradationCode = normalizeDegradationKey(entry.name);
+    const degradationCode = normalizeDegradationKey(entry.code || entry.name);
     const fallbackCause = DEGRADATION_CAUSE_FALLBACKS[degradationCode] || "";
     const uniqueCauses = [...new Set(entry.causes.map((cause) => toText(cause)).filter(Boolean))];
     if (uniqueCauses.length === 0 && fallbackCause) {
@@ -6147,10 +6480,10 @@ function resetAutoincrementSequence(db, tableName) {
 }
 
 function getSheetRows(workbook, sheetRef) {
-  const sheetName = typeof sheetRef === "string" ? sheetRef : sheetRef?.name;
+  const sheetName = resolveWorkbookSheetName(workbook, sheetRef);
   const sheetDef =
     typeof sheetRef === "string" ? SHEET_DEFINITIONS.find((item) => item.name === sheetRef) || null : sheetRef;
-  const sheet = workbook.Sheets[sheetName];
+  const sheet = sheetName ? workbook.Sheets[sheetName] : null;
   if (!sheet) {
     return [];
   }

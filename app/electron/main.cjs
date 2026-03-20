@@ -40,7 +40,7 @@ if (!hasSingleInstanceLock) {
   app.quit();
 }
 
-function createMainWindow() {
+async function createMainWindow() {
   const win = new BrowserWindow({
     show: false,
     width: 1320,
@@ -56,11 +56,17 @@ function createMainWindow() {
     }
   });
 
+  const bundledIndexPath = path.join(__dirname, "../web/dist/index.html");
   if (isDev) {
-    win.loadURL("http://localhost:5173");
-    win.webContents.openDevTools({ mode: "detach" });
+    try {
+      await win.loadURL("http://localhost:5173");
+      win.webContents.openDevTools({ mode: "detach" });
+    } catch (error) {
+      console.warn("[PAD] Serveur Vite indisponible, bascule sur le build local.", error?.message || error);
+      await win.loadFile(bundledIndexPath);
+    }
   } else {
-    win.loadFile(path.join(__dirname, "../web/dist/index.html"));
+    await win.loadFile(bundledIndexPath);
   }
 
   win.on("closed", () => {
@@ -655,7 +661,7 @@ async function bootstrap() {
     dataLayer = await initializeDataLayerWithRetry();
     setSplashStage("Chargement du référentiel", "Ouverture des catalogues PAD", 68);
     registerIpcHandlers();
-    createMainWindow();
+    await createMainWindow();
     setSplashStage("Ouverture du logiciel", "Préparation de l'interface", 88);
     clearStartupFallbackTimer();
     startupFallbackTimer = setTimeout(finalizeStartup, 15000);
@@ -664,7 +670,7 @@ async function bootstrap() {
       if (BrowserWindow.getAllWindows().length === 0) {
         createSplashWindow();
         setSplashStage("Initialisation du logiciel", "Préparation de l'environnement", 18);
-        createMainWindow();
+        void createMainWindow();
         setSplashStage("Ouverture du logiciel", "Préparation de l'interface", 88);
         clearStartupFallbackTimer();
         startupFallbackTimer = setTimeout(finalizeStartup, 15000);
